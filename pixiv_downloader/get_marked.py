@@ -5,6 +5,7 @@ from pathvalidate import sanitize_filename
 from path_cross_platform import path_fit_platform
 from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid
 
+MAX_PAGE = 30
 path = path_fit_platform(pd_path)
 user_list: list[tuple[int, str]] = pd_user_list  # [(uid, user_name), ...]
 
@@ -39,17 +40,20 @@ def get_marked(method, _id, root_dir=None, inc_download=True):
         while True:
             try:
                 result = f(*args, **kwargs)
-                break
+                print(result)
+                if result.illusts is not None:
+                    break
             except:
-                print('GET LIST TOO FAST!')
-                time.sleep(5)
+                pass
+            time.sleep(30)
+            print('FAILED: EMPTY OR ERROR RESULT', args, kwargs)
         return result
 
     func = getattr(api, method)
     json_result = func_with_retry(func, _id)
     cur_path = get_root_path(root_dir)
     downloaded_files = set(int(file.split('_')[0]) for files in (x for _, _, x in os.walk(cur_path)) for file in files)
-    while json_result.illusts is not None:
+    for _ in range(MAX_PAGE):
         download_list(json_result.illusts, cur_path)
         if json_result.next_url is None or \
                 (inc_download and len(downloaded_files & get_file_pids(json_result.illusts)) != 0):
