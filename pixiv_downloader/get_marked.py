@@ -13,6 +13,13 @@ api = AppPixivAPI(proxies=proxies)
 api.auth(refresh_token=pd_token)
 
 
+def refresh_auth():
+    global api
+    new_api = AppPixivAPI(proxies=proxies)
+    new_api.auth(refresh_token=pd_token)
+    api = new_api
+
+
 def get_root_path(root_dir):
     if root_dir is not None:
         cur_path = os.path.join(os.path.dirname(path), root_dir)
@@ -45,7 +52,8 @@ def get_marked(method, _id, root_dir=None, inc_download=True):
                     break
             except:
                 pass
-            time.sleep(30)
+            time.sleep(120)
+            refresh_auth()
             print('FAILED: EMPTY OR ERROR RESULT', args, kwargs)
         return result
 
@@ -79,8 +87,12 @@ if __name__ == '__main__':
     method = input("抓取：")
     inc = input('增量？') != 'False'
     if method == 'ul':
+        start = input('从哪位作者开始？')
         for user_id, user_name in user_list:
             print(f'----------------{user_name}----------------')
-            get_marked('user_illusts', user_id, user_name, inc)
+            if user_name == start:
+                start = None
+            if start is None:
+                get_marked('user_illusts', user_id, user_name, inc)
     elif method == 'b':
         get_marked('user_bookmarks_illust', pd_pid, '!BOOKMARK', inc)
