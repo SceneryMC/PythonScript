@@ -22,35 +22,36 @@ for (elem of works){
 return ls;
 """
 flag_CN = 'url("data:image/gif;base64,R0lGODlhSAAwAPfGAPbBQO5kX+9lX+5mX+5nX+9nX+5rXe9oXu5oX+9qXu9rXu9sXe9tXe9uXO9uXfBvXO9zWvF7V/B9V/F+VvF+V/BxW/BzWvByW/BzW/B2WfB3WfB0WvB2WvB3WvF5WPB4WfB5WfB6WPF6WPB7WPF7WPB6WfB8WOxPZ+1PZ+xLaOxNaO1OaO1TZexQZu1QZuxRZu1RZuxQZ+1QZ+1RZ+xSZu1SZuxTZu1TZu1VZO1UZe1VZe1WZO1XZO1WZe1XZe5XZO1UZu1aY+1bY+5aY+5bY+5fYe1cYu1dYu5dYu5cY+1eYu5eYu5fYu1YZO1ZZO5YZO5ZZO1aZO5gYe5hYe5jYO5iYe5kYO9kYO5lYO9lYO9mYPfBP/bCP/fDP/fEP/fFP/OTT/KVTvOUT/OWTvKWT/OWT/OfS/SfS/OYTfOaTfObTfOZTvKaTvSbTfOcTPOdTPOcTfOeTPSdTPScTfKHU/GCVfCAVvGBVvCCVvGCVvGFVPGEVfGFVfGHVPGGVfGJU/KIU/GKU/KNUfKPUfGMUvKMUvOMUvKIVPOQUPKRUPORUPKQUfORUfKSUPOSUPKTUPOTUPOUUPSqR/WqR/WrR/WtR/WvRvOgS/ShSvSgS/ShS/SiS/SnSPSlSvSmSvSoSPSpSPSoSfWoSfSpSfSqSPWqSPSrSPW2Q/W3Q/WwRfaxRfWyRfWzRfWwRvWxRvW0Rfa0RPa0RfW2RPW3RPW4Q/a4Q/a6Qva7Qva6Q/a8Qfa9Qfe9Qfa/QPa+Qfe+Qfa/Qfa8Qva9QvbAQPfAQPfCQPfBQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAUAAMYALAAAAABIADAAAAj/AI0JNKajoMGDCBMqXMiwIcOBAx1KnEixosGIFh3myMgxocCOIEM2JCjyYI0hDwTk2FiyJccaVSLpcUnz4EqGNab8kVNL1Ro/PljWFHlz4Y0mdlD1EiaJgQ6hQzvC4ECCyI2FM7B4+mWrUQ+oUTnGQDSJgYyFMg5kKpSozA6WYMNKBLIkjpc7J4wiWTBESYEeT3lYSSK3Yg0MlL6QOXLVaI3HBWfw2FPCB4zCElf0ufWrUgUUDIXmcHJhAiVQdzoEaYz56Y3XN2YwOVPsli9GTVA8fgxE4dE9qYLpcnWnCWvMSQokWODggxpawW71koWGgoYP2A/0RpgDSAFRvXpd/6JyXO5KQ6RAgSrVKpeuW/B76YplydIqS3VqKIQxZNOoUGokcVlrT3FQSRcACPMLMPA1CEx4xOwyRgDbIXSDEHkokIAIVhFYUA0GXOJegyTC94ssgSAxoEI9CAEFDTsA5uFTLVjRhi0MlijdKns4cRZDMwDhQQMs6DdjQTJo8YkwOgLjiyI4rKgQD1MYgAkcDmTRRFyYuSBGLzk2qAssEajQ0A1R8NGJLbhwgkcU5bWGAiS6hAmfLq9IAFpoOkBgCS+/kNLAU0fqsMMbtemyRRdcgPkLITEolENjMDyhySmzsDGElATmMEAoAAzTChiHROKKMF64gcRxOUSBwBQF3cOQxCISmEDHqoXeMMIrAGiSQRMrQNHBHLusssGKN6RgRCN5xHBCDk1c8cIJS/DAZWE1CJKKI1e4UMOkKEgBCBwaDFgDExIMwoopf4AQlJFxEgjEBiFEEelBMABBhRQs1bDEI+7xIkseXxWq0AsyVGhTDcehQAUpXwwThg0KGwySDASYkQYcgxRssUgwefBDERZ4/HFIQMyQQ5Ent+zyyzDHLPPMNNds880456zzzjz3LDNJPiv0UdBCD030RRAB7TNEAQEAOw==")'
-
+MAX_PAGE = 100
+WORKS_PER_PAGE = 25
 
 def generate_url(artist, page):
     return f"https://nhentai.net/artist/{artist}/?page={page}"
 
 
 def visit_artist(artist, last_work, Chinese_only):
-    page = 1
-    works = []
-    inf = max(last_work, local_last_work[artist])
-    not_over = True
-    while not_over:
-        tmp_works = []
+    def get_page_with_retry(artist, page):
         while True:
             driver.get(generate_url(artist, page))
             results = driver.execute_script(js_code)
-            for tp in results:
-                work_id = int(re.match(r'https://nhentai\.net/g/(\d+)/', tp[0]).group(1))
-                if work_id > inf and (not Chinese_only or tp[1] == flag_CN):
-                    tmp_works.append(work_id)
-                elif work_id <= inf:
-                    not_over = False
-            if not not_over or results or '<h3>No results, sorry.</h3>' in driver.page_source:
-                break
+            if results or 'No results, sorry.' in driver.page_source:
+                return results
             print(driver.page_source)
             time.sleep(30)
 
+    works = []
+    inf = max(last_work, local_last_work[artist])
+    for page in range(1, MAX_PAGE + 1):
+        tmp_works = []
+        results = get_page_with_retry(artist, page)
+        work_id = -1
+        for tp in results:
+            work_id = int(re.match(r'https://nhentai\.net/g/(\d+)/', tp[0]).group(1))
+            if work_id > inf and (not Chinese_only or tp[1] == flag_CN):
+                tmp_works.append(work_id)
+        if work_id <= inf or len(results) < WORKS_PER_PAGE:
+            break
         works.extend(tmp_works)
-        page += 1
         time.sleep(0.5)
     return works
 
@@ -90,9 +91,10 @@ def default_artist():
     return s
 
 
-def load_specified(ignore_existed=True):
+def load_specified():
     with open(download_list_file) as f:
         d = {s: 0 for s in re.findall(r'https://nhentai\.net/artist/([^/]+)/', f.read())}
+    ignore_existed = input('是否跳过已存在？') != 'False'
     if ignore_existed:
         ignored = set(d.keys()) & set(get_all_works_of_artists().keys())
         for artist in ignored:
