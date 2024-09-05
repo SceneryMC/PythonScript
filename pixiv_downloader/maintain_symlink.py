@@ -1,7 +1,7 @@
 import json
 import os
-import time
-from pixiv_downloader.download_marked import api, get_downloaded_works
+from pixiv_downloader.download_marked import api
+from pixiv_downloader.utils import get_downloaded_works
 from secret import pd_path
 
 
@@ -22,13 +22,19 @@ def get_all_works_info():
     with open('text_files/downloaded_info.json', 'r+', encoding='utf-8') as f:
         d = json.load(f)
         missing = downloaded_pids - set(int(n) for n in d.keys())
+        print(len(missing))
         for work_id in missing:
             info = get_work_info(work_id)
+            print(work_id)
             d[work_id] = info
             f.seek(0)
             json.dump(d, f, ensure_ascii=False, indent=True)
-            time.sleep(1.1)
+
+
+def maintain_symlink():
+    pass
 
 
 if __name__ == '__main__':
-    get_all_works_info()
+    # get_all_works_info()
+    pass

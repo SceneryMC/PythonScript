@@ -5,23 +5,16 @@ import time
 from pixivpy3 import *
 from pathvalidate import sanitize_filename
 from path_cross_platform import path_fit_platform
+from pixiv_downloader.utils import print_in_one_line, get_file_pids, get_downloaded_works
 from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid
 
 MAX_PAGE = 25
-MAX_STR_LEN = 1000
+WORKS_PER_PAGE = 30
 path = path_fit_platform(pd_path)
 user_list: list[tuple[int, str]] = pd_user_list  # [(uid, user_name), ...]
 
 api = AppPixivAPI(proxies=proxies)
 api.auth(refresh_token=pd_token)
-
-
-def print_in_one_line(s):
-    s = repr(s)
-    if len(s) > MAX_STR_LEN:
-        print(f"{s[:MAX_STR_LEN//2]}......{s[-MAX_STR_LEN//2:]}")
-    else:
-        print(s)
 
 
 def get_root_path(root_dir):
@@ -30,25 +23,6 @@ def get_root_path(root_dir):
         os.makedirs(cur_path, exist_ok=True)
         return cur_path
     return os.path.join(path)
-
-
-def get_file_pids(raw_data):
-    return set(work.id for work in raw_data)
-
-
-def get_downloaded_works(root_path):
-    def get_pid(file_name):
-        return int(file_name.split('_')[0])
-
-    result = set()
-    for _, folders, files in os.walk(root_path):
-        if not folders and files:
-            result |= set(get_pid(file) for file in files)
-        else:
-            for file in files:
-                result.add(get_pid(file))
-    return result
-    # return set(int(file.split('_')[0]) for files in (x for _, _, x in os.walk(root_path)) for file in files)
 
 
 def download_marked(method, _id, root_dir=None, inc_download=True):
@@ -92,6 +66,7 @@ def download_works_in_list(ls, cur_path):
 
     with open('text_files/downloaded_info.json', 'r+', encoding='utf-8') as f:
         info = json.load(f)
+        count = 0
         for work in ls:
             folder_name = sanitize_filename(work.title)
             print(cur_path, work.page_count, folder_name)
@@ -107,8 +82,10 @@ def download_works_in_list(ls, cur_path):
                 info[_id] = work
             else:
                 print(f"SKIPPED {_id}")
-        f.seek(0)
-        json.dump(info, f, ensure_ascii=False, indent=True)
+                count += 1
+        if count != WORKS_PER_PAGE:
+            f.seek(0)
+            json.dump(info, f, ensure_ascii=False, indent=True)
 
 
 if __name__ == '__main__':
