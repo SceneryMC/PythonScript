@@ -9,7 +9,6 @@ from pixiv_downloader.utils import print_in_one_line, get_file_pids, get_downloa
 from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid
 
 MAX_PAGE = 25
-WORKS_PER_PAGE = 30
 path = path_fit_platform(pd_path)
 user_list: list[tuple[int, str]] = pd_user_list  # [(uid, user_name), ...]
 
@@ -70,6 +69,7 @@ def download_works_in_list(ls, cur_path):
         for work in ls:
             folder_name = sanitize_filename(work.title)
             print(cur_path, work.page_count, folder_name)
+            # 以download_with_retry为判断是否下载完成的方法，因为允许BOOKMARK重复下载作品
             if work.page_count > 1:
                 tmp_path = os.path.join(cur_path, folder_name)
                 os.makedirs(tmp_path, exist_ok=True)
@@ -83,7 +83,7 @@ def download_works_in_list(ls, cur_path):
             else:
                 print(f"SKIPPED {_id}")
                 count += 1
-        if count != WORKS_PER_PAGE:
+        if count != len(ls):
             f.seek(0)
             json.dump(info, f, ensure_ascii=False, indent=True)
 
@@ -94,10 +94,10 @@ if __name__ == '__main__':
     if method == 'ul':
         start = input('从哪位作者开始？')
         for user_id, user_name in user_list:
-            print(f'----------------{user_name}----------------')
             if user_name == start:
                 start = ''
             if start == '':
+                print(f'----------------{user_name}----------------')
                 download_marked('user_illusts', user_id, user_name, inc)
     elif method == 'b':
         download_marked('user_bookmarks_illust', pd_pid, '!BOOKMARK', inc)

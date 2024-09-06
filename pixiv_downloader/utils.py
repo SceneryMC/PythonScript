@@ -1,8 +1,11 @@
 import os
-
 from secret import pd_user_list, pd_path
 
 MAX_STR_LEN = 1000
+
+
+def get_pid(file_name):
+    return int(file_name.split('_')[0])
 
 
 def get_file_pids(raw_data):
@@ -26,9 +29,6 @@ def get_last_downloaded_user():
 
 
 def get_downloaded_works(root_path):
-    def get_pid(file_name):
-        return int(file_name.split('_')[0])
-
     result = set()
     for _, folders, files in os.walk(root_path):
         if not folders and files:
