@@ -1,10 +1,11 @@
 import bisect
 import os
-from secret import pd_user_list, pd_path
+from secret import pd_user_list, pd_path, pd_tags
 
 MAX_STR_LEN = 1000
 BOOKMARK_ONLY = '!BOOKMARK'
 rank = [0, 250, 500, 1000, 2000, 5000, 10000]
+d_tags = {'m': set(elem for tags, cls in pd_tags for elem in tags if cls != 'TAG')}
 
 
 def rank_name(idx):

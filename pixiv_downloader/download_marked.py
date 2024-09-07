@@ -5,7 +5,7 @@ import time
 from pixivpy3 import *
 from pathvalidate import sanitize_filename
 from path_cross_platform import path_fit_platform
-from pixiv_downloader.utils import print_in_one_line, get_file_pids, get_downloaded_works, BOOKMARK_ONLY
+from pixiv_downloader.utils import print_in_one_line, get_file_pids, get_downloaded_works, BOOKMARK_ONLY, d_tags
 from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid
 
 MAX_PAGE = 25
@@ -22,7 +22,7 @@ def get_root_path(root_dir):
     return os.path.join(path)
 
 
-def download_marked(method, _id, root_dir=None, inc_download=True):
+def download_marked(method, _id, root_dir=None, inc_download=True, only_tagged=None):
     def func_with_retry(f, *args, **kwargs):
         while True:
             try:
@@ -43,9 +43,11 @@ def download_marked(method, _id, root_dir=None, inc_download=True):
     cur_path = get_root_path(root_dir)
     downloaded_pids = get_downloaded_works(cur_path)
     for _ in range(MAX_PAGE):
-        download_works_in_list(json_result.illusts, cur_path)
+        ls = json_result.illusts if only_tagged is None else \
+            [d for d in json_result.illusts if set(e['name'] for e in d['tags']) & only_tagged]
+        download_works_in_list(ls, cur_path)
         if json_result.next_url is None or \
-                (inc_download and len(downloaded_pids & get_file_pids(json_result.illusts)) != 0):
+                (inc_download and len(downloaded_pids & get_file_pids(ls)) != 0):
             break
         next = api.parse_qs(json_result.next_url)
         json_result = func_with_retry(func, **next)
@@ -92,11 +94,12 @@ if __name__ == '__main__':
     inc = input('增量？') != 'False'
     if method == 'ul':
         start = input('从哪位作者开始？')
+        only_tagged = input('是否只下载带有指定标签的作品？')
         for user_id, user_name in pd_user_list:
             if user_name == start:
                 start = ''
             if start == '':
                 print(f'----------------{user_name}----------------')
-                download_marked('user_illusts', user_id, user_name, inc)
+                download_marked('user_illusts', user_id, user_name, inc, d_tags.get(only_tagged, None))
     elif method == 'b':
-        download_marked('user_bookmarks_illust', pd_pid, BOOKMARK_ONLY, inc)
+        download_marked('user_bookmarks_illust', pd_pid, BOOKMARK_ONLY, inc, None)
