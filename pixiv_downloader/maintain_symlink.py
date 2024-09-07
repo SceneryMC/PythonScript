@@ -55,7 +55,8 @@ def create_symlinks(_id, info, sym, downloaded_paths):
         os.makedirs(path, exist_ok=True)
         if not os.path.exists(p := os.path.join(path, get_target_name(info))):
             os.symlink(downloaded_paths[_id], p)
-        sym[_id].append(tag_projected)
+        if tag_projected not in sym[_id]:
+            sym[_id].append(tag_projected)
 
     for tag in info['tags']:
         if (result := map_duplicate_tags_to_one(tag['name']))[1] is None or result[0] in sym[_id]:
