@@ -55,8 +55,6 @@ def create_symlinks(_id, info, sym, downloaded_paths):
         os.makedirs(path, exist_ok=True)
         if not os.path.exists(p := os.path.join(path, get_target_name(info))):
             os.symlink(downloaded_paths[_id], p)
-        if tag_projected not in sym[_id]:
-            sym[_id].append(tag_projected)
 
     for tag in info['tags']:
         if (result := map_duplicate_tags_to_one(tag['name']))[1] is None or result[0] in sym[_id]:
@@ -68,6 +66,7 @@ def create_symlinks(_id, info, sym, downloaded_paths):
         if (idx := get_rank_idx(info['total_bookmarks'])) > 0:
             rank_path = os.path.join(base, rank_name(idx))
             create_symlink(rank_path)
+        sym[_id].append(tag_projected)
 
 
 def add_new_tags_of_bookmark_num():
