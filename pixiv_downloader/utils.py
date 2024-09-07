@@ -1,3 +1,4 @@
+import bisect
 import os
 from secret import pd_user_list, pd_path
 
@@ -8,6 +9,10 @@ rank = [0, 250, 500, 1000, 2000, 5000, 10000]
 
 def rank_name(idx):
     return f"!{rank[idx]}"
+
+
+def get_rank_idx(n):
+    return bisect.bisect_right(rank, n) - 1
 
 
 def get_pid(file_name):

@@ -3,12 +3,10 @@ import json
 import os
 from pathvalidate import sanitize_filename
 from collections import defaultdict
-from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY
+from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY, get_rank_idx
 from secret import pd_path, pd_user_list, pd_symlink_path, pd_tags
 
-BOOKMARK_NUM = "BOOKMARK_NUM"
 user_id_to_name = dict(pd_user_list)
-pd_tags_added = pd_tags + [((rank_name(i), ), BOOKMARK_NUM) for i in range(len(rank))].reverse()
 
 
 def get_target_name(info) -> str:
@@ -46,24 +44,29 @@ def get_all_exist_from_json():
 
 def map_duplicate_tags_to_one(given_tag) -> tuple[str | None, str | None]:
     given_tag = given_tag.lower()
-    for tags, cls in pd_tags_added:
+    for tags, cls in pd_tags:
         if any(given_tag.startswith(tag.lower()) for tag in tags):
             return tags[0], cls
     return None, None
 
 
 def create_symlinks(_id, info, sym, downloaded_paths):
+    def create_symlink(path):
+        os.makedirs(path, exist_ok=True)
+        if not os.path.exists(p := os.path.join(path, get_target_name(info))):
+            os.symlink(downloaded_paths[_id], p)
+        sym[_id].append(tag_projected)
+
     for tag in info['tags']:
         if (result := map_duplicate_tags_to_one(tag['name']))[1] is None or result[0] in sym[_id]:
             continue
         tag_projected, cls = result
         base = os.path.join(pd_symlink_path, cls, tag_projected)
-        if cls != BOOKMARK_NUM:
-            base = os.path.join(base, user_id_to_name.get(info['user']['id'], BOOKMARK_ONLY))
-        os.makedirs(base, exist_ok=True)
-        if not os.path.exists(p := os.path.join(base, get_target_name(info))):
-            os.symlink(downloaded_paths[_id], p)
-        sym[_id].append(tag_projected)
+        user_path = os.path.join(base, user_id_to_name.get(info['user']['id'], BOOKMARK_ONLY))
+        create_symlink(user_path)
+        if (idx := get_rank_idx(info['total_bookmarks'])) > 0:
+            rank_path = os.path.join(base, rank_name(idx))
+            create_symlink(rank_path)
 
 
 def add_new_tags_of_bookmark_num():

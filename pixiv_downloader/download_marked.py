@@ -1,4 +1,3 @@
-import bisect
 import json
 import os
 import sys
@@ -6,8 +5,7 @@ import time
 from pixivpy3 import *
 from pathvalidate import sanitize_filename
 from path_cross_platform import path_fit_platform
-from pixiv_downloader.utils import print_in_one_line, get_file_pids, get_downloaded_works, rank, rank_name, \
-    BOOKMARK_ONLY
+from pixiv_downloader.utils import print_in_one_line, get_file_pids, get_downloaded_works, BOOKMARK_ONLY
 from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid
 
 MAX_PAGE = 25
@@ -80,8 +78,6 @@ def download_works_in_list(ls, cur_path):
                 work['filename'] = work.meta_single_page.original_image_url.split('/')[-1]
             if (_id := str(work.id)) not in info:
                 del work['meta_pages'], work['meta_single_page'], work['image_urls']
-                if (idx := bisect.bisect_right(rank, work['total_bookmarks']) - 1) > 0:
-                    work['tags'].append({'name': rank_name(idx), "translated_name": None})
                 info[_id] = work
             else:
                 print(f"SKIPPED {_id}")
