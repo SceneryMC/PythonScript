@@ -1,3 +1,4 @@
+import bisect
 import json
 import os
 import sys
@@ -5,13 +6,12 @@ import time
 from pixivpy3 import *
 from pathvalidate import sanitize_filename
 from path_cross_platform import path_fit_platform
-from pixiv_downloader.utils import print_in_one_line, get_file_pids, get_downloaded_works
+from pixiv_downloader.utils import print_in_one_line, get_file_pids, get_downloaded_works, rank, rank_name, \
+    BOOKMARK_ONLY
 from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid
 
 MAX_PAGE = 25
 path = path_fit_platform(pd_path)
-user_list: list[tuple[int, str]] = pd_user_list  # [(uid, user_name), ...]
-
 api = AppPixivAPI(proxies=proxies)
 api.auth(refresh_token=pd_token)
 
@@ -77,8 +77,11 @@ def download_works_in_list(ls, cur_path):
                     download_with_retry(meta.image_urls.original, tmp_path)
             else:
                 download_with_retry(work.meta_single_page.original_image_url, cur_path)
+                work['filename'] = work.meta_single_page.original_image_url.split('/')[-1]
             if (_id := str(work.id)) not in info:
                 del work['meta_pages'], work['meta_single_page'], work['image_urls']
+                if (idx := bisect.bisect_right(rank, work['total_bookmarks']) - 1) > 0:
+                    work['tags'].append({'name': rank_name(idx), "translated_name": None})
                 info[_id] = work
             else:
                 print(f"SKIPPED {_id}")
@@ -93,11 +96,11 @@ if __name__ == '__main__':
     inc = input('增量？') != 'False'
     if method == 'ul':
         start = input('从哪位作者开始？')
-        for user_id, user_name in user_list:
+        for user_id, user_name in pd_user_list:
             if user_name == start:
                 start = ''
             if start == '':
                 print(f'----------------{user_name}----------------')
                 download_marked('user_illusts', user_id, user_name, inc)
     elif method == 'b':
-        download_marked('user_bookmarks_illust', pd_pid, '!BOOKMARK', inc)
+        download_marked('user_bookmarks_illust', pd_pid, BOOKMARK_ONLY, inc)

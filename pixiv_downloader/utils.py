@@ -2,6 +2,12 @@ import os
 from secret import pd_user_list, pd_path
 
 MAX_STR_LEN = 1000
+BOOKMARK_ONLY = '!BOOKMARK'
+rank = [0, 250, 500, 1000, 2000, 5000, 10000]
+
+
+def rank_name(idx):
+    return f"!{rank[idx]}"
 
 
 def get_pid(file_name):

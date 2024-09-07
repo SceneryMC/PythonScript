@@ -1,42 +1,18 @@
+import bisect
 import json
 import os
 from pathvalidate import sanitize_filename
 from collections import defaultdict
-from pixiv_downloader.download_marked import api
-from pixiv_downloader.utils import get_downloaded_works, get_pid
+from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY
 from secret import pd_path, pd_user_list, pd_symlink_path, pd_tags
 
+BOOKMARK_NUM = "BOOKMARK_NUM"
 user_id_to_name = dict(pd_user_list)
+pd_tags_added = pd_tags + [((rank_name(i), ), BOOKMARK_NUM) for i in range(len(rank))].reverse()
 
 
-def get_target_name(info):
+def get_target_name(info) -> str:
     return sanitize_filename(info['title']) if info['page_count'] > 1 else info['filename']
-
-
-def get_work_info(_id):
-    work = api.illust_detail(_id)
-    if 'error' in work:
-        print(_id, work.error)
-        return None
-    work = work.illust
-    del work['meta_pages'], work['meta_single_page'], work['image_urls']
-    return work
-
-
-def get_all_works_info():
-    root = os.path.dirname(pd_path)
-    downloaded_pids = get_downloaded_works(root)
-    print(len(downloaded_pids))
-    with open('text_files/downloaded_info.json', 'r+', encoding='utf-8') as f:
-        d = json.load(f)
-        missing = downloaded_pids - set(int(n) for n in d.keys())
-        print(len(missing))
-        for work_id in missing:
-            info = get_work_info(work_id)
-            print(work_id)
-            d[work_id] = info
-            f.seek(0)
-            json.dump(d, f, ensure_ascii=False, indent=True)
 
 
 def get_all_exist_from_dir():
@@ -62,28 +38,48 @@ def get_all_exist_from_json():
             continue
         user_id = info['user']['id']
         target_name = get_target_name(info)
-        result[int(_id)] = os.path.join(os.path.dirname(pd_path),
-                                        user_id_to_name.get(user_id, '!BOOKMARK'),
+        result[_id] = os.path.join(os.path.dirname(pd_path),
+                                        user_id_to_name.get(user_id, BOOKMARK_ONLY),
                                         target_name)
     return result
 
 
-def map_duplicate_tags_to_one(given_tag):
+def map_duplicate_tags_to_one(given_tag) -> tuple[str | None, str | None]:
     given_tag = given_tag.lower()
-    for tags, cls in pd_tags:
+    for tags, cls in pd_tags_added:
         if any(given_tag.startswith(tag.lower()) for tag in tags):
             return tags[0], cls
     return None, None
 
 
-def maintain_symlink():
-    def create_new_symlinks(new_tags: set[tuple[str, str]], _id, info):
-        for tag, cls in new_tags:
-            base = os.path.join(pd_symlink_path, cls, tag, user_id_to_name.get(info['user']['id'], '!BOOKMARK'))
-            os.makedirs(base, exist_ok=True)
-            if not os.path.exists(p := os.path.join(base, get_target_name(info))):
-                os.symlink(downloaded_paths[_id], p)
+def create_symlinks(_id, info, sym, downloaded_paths):
+    for tag in info['tags']:
+        if (result := map_duplicate_tags_to_one(tag['name']))[1] is None or result[0] in sym[_id]:
+            continue
+        tag_projected, cls = result
+        base = os.path.join(pd_symlink_path, cls, tag_projected)
+        if cls != BOOKMARK_NUM:
+            base = os.path.join(base, user_id_to_name.get(info['user']['id'], BOOKMARK_ONLY))
+        os.makedirs(base, exist_ok=True)
+        if not os.path.exists(p := os.path.join(base, get_target_name(info))):
+            os.symlink(downloaded_paths[_id], p)
+        sym[_id].append(tag_projected)
 
+
+def add_new_tags_of_bookmark_num():
+    with open('text_files/downloaded_info.json', 'r', encoding='utf-8') as f:
+        d = json.load(f)
+    for _id, info in d.items():
+        if info is None or 'user' not in info:
+            continue
+        idx = bisect.bisect_right(rank, info['total_bookmarks']) - 1
+        if idx > 0:
+            d[_id]['tags'].append({'name': rank_name(idx), "translated_name": None})
+    with open('text_files/downloaded_info.json', 'w', encoding='utf-8') as f:
+        json.dump(d, f, ensure_ascii=False, indent=True)
+
+
+def maintain_symlink_template():
     downloaded_paths = get_all_exist_from_json()
     with open('text_files/downloaded_info.json', 'r', encoding='utf-8') as f:
         d = json.load(f)
@@ -92,16 +88,11 @@ def maintain_symlink():
     for _id, info in d.items():
         if info is None or 'user' not in info:
             continue
-        new_tags = {
-            result for tag in info['tags']
-            if (result := map_duplicate_tags_to_one(tag['name']))[1] is not None
-               and result[0] not in sym[_id]
-        }
-        create_new_symlinks(new_tags, int(_id), info)
-        sym[_id].extend(t[0] for t in new_tags)
+        create_symlinks(_id, info, sym, downloaded_paths)
     with open('text_files/created_symlinks.json', 'w', encoding='utf-8') as f:
         json.dump(dict(sym), f, ensure_ascii=False, indent=True)
 
 
 if __name__ == '__main__':
-    maintain_symlink()
+    maintain_symlink_template()
+    # add_new_tags_of_bookmark_num()
