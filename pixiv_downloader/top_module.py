@@ -1,5 +1,7 @@
 import os
 import subprocess
+
+from pixiv_downloader.maintain_symlink import user_id_to_name
 from pixiv_downloader.utils import get_last_downloaded_user
 
 
@@ -16,6 +18,7 @@ def download_ul():
                                 input=f'ul\n{inc}\n{user if user != 'AUTO' else get_last_downloaded_user()}\n')
         if result.returncode == 0:
             break
+        user = user_id_to_name[result.returncode]
 
 
 if __name__ == '__main__':

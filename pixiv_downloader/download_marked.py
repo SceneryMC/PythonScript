@@ -40,7 +40,7 @@ def download_marked(method, _id, root_dir=None, inc_download=True, criteria=None
                 print("NETWORK ERROR!")
             else:
                 print('FAILED: EMPTY OR ERROR RESULT', args, kwargs)
-                sys.exit(1)
+                sys.exit(_id)
                 # {'error': {'user_message': '', 'message': 'Error occurred at the OAuth process. Please check your Access Token to fix this. Error Message: invalid_grant', 'reason': '', 'user_message_details': {}}}
         return result
 
