@@ -36,8 +36,9 @@ def get_all_exist_from_json():
             continue
         user_id = info['user']['id']
         target_name = get_target_name(info)
+        user_or_bookmark = BOOKMARK_ONLY if info['is_bookmarked'] else user_id_to_name[user_id]
         result[_id] = os.path.join(os.path.dirname(pd_path),
-                                        user_id_to_name.get(user_id, BOOKMARK_ONLY),
+                                        user_or_bookmark,
                                         target_name)
     return result
 
