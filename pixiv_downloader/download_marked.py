@@ -3,7 +3,6 @@ import os
 import sys
 import time
 from functools import partial
-
 from pixivpy3 import *
 from pathvalidate import sanitize_filename
 from path_cross_platform import path_fit_platform
@@ -11,13 +10,14 @@ from pixiv_downloader.utils import print_in_one_line, get_file_pids, get_downloa
 from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid, pd_tags
 
 MAX_PAGE = 1000
+FULL_DOWNLOAD_PAGE_LIMIT = 15
 path = path_fit_platform(pd_path)
 api = AppPixivAPI(proxies=proxies)
 api.auth(refresh_token=pd_token)
 
 
-def criteria_tagged(d, tags: set):
-    return set(e['name'] for e in d['tags']) & tags
+def criteria_tagged(d, i, tags: set):
+    return set(e['name'] for e in d['tags']) & tags if i >= FULL_DOWNLOAD_PAGE_LIMIT else True
 
 
 def get_root_path(root_dir):
@@ -28,7 +28,8 @@ def get_root_path(root_dir):
     return os.path.join(path)
 
 
-def download_marked(method, _id, root_dir=None, inc_download=True, criteria=None):
+def download_marked(method, _id, root_dir=None, inc_download=True,
+                    criteria=lambda d, i: True):
     def func_with_retry(f, *args, **kwargs):
         while True:
             try:
@@ -48,9 +49,8 @@ def download_marked(method, _id, root_dir=None, inc_download=True, criteria=None
     json_result = func_with_retry(func, _id)
     cur_path = get_root_path(root_dir)
     downloaded_pids = get_downloaded_works(cur_path)
-    for _ in range(MAX_PAGE):
-        ls = json_result.illusts if criteria is None else \
-            [d for d in json_result.illusts if criteria(d)]
+    for i in range(MAX_PAGE):
+        ls = [d for d in json_result.illusts if criteria(d, i)]
         download_works_in_list(ls, cur_path)
         if json_result.next_url is None or \
                 (inc_download and len(downloaded_pids & get_file_pids(ls)) != 0):
@@ -107,6 +107,5 @@ if __name__ == '__main__':
                 print(f'----------------{user_name}----------------')
                 download_marked('user_illusts', user_id, user_name, inc,
                                 partial(criteria_tagged, tags=set(elem for tags, cls in pd_tags for elem in tags)))
-                # partial(criteria_tagged, tags=set(elem for tags, cls in pd_tags for elem in tags))
     elif method == 'b':
         download_marked('user_bookmarks_illust', pd_pid, BOOKMARK_ONLY, inc)
