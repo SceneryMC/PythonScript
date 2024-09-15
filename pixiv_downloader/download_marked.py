@@ -1,12 +1,12 @@
 import json
 import os
-import sys
 import time
 from functools import partial
 from pixivpy3 import *
 from pathvalidate import sanitize_filename
 from path_cross_platform import path_fit_platform
-from pixiv_downloader.utils import print_in_one_line, get_file_pids, get_downloaded_works, BOOKMARK_ONLY
+from pixiv_downloader.utils import get_file_pids, get_downloaded_works, BOOKMARK_ONLY, \
+    get_info_with_retry
 from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid, pd_tags
 
 MAX_PAGE = 1000
@@ -30,23 +30,8 @@ def get_root_path(root_dir):
 
 def download_marked(method, _id, root_dir=None, inc_download=True,
                     criteria=lambda d, i: True):
-    def func_with_retry(f, *args, **kwargs):
-        while True:
-            try:
-                result = f(*args, **kwargs)
-                print_in_one_line(result)
-                if result.illusts is not None:
-                    break
-            except:
-                print("NETWORK ERROR!")
-            else:
-                print('FAILED: EMPTY OR ERROR RESULT', args, kwargs)
-                sys.exit(_id)
-                # {'error': {'user_message': '', 'message': 'Error occurred at the OAuth process. Please check your Access Token to fix this. Error Message: invalid_grant', 'reason': '', 'user_message_details': {}}}
-        return result
-
     func = getattr(api, method)
-    json_result = func_with_retry(func, _id)
+    json_result = get_info_with_retry(func, _id)
     cur_path = get_root_path(root_dir)
     downloaded_pids = get_downloaded_works(cur_path)
     for i in range(MAX_PAGE):
@@ -56,7 +41,7 @@ def download_marked(method, _id, root_dir=None, inc_download=True,
                 (inc_download and len(downloaded_pids & get_file_pids(ls)) != 0):
             break
         next = api.parse_qs(json_result.next_url)
-        json_result = func_with_retry(func, **next)
+        json_result = get_info_with_retry(func, _id, **next)
 
 
 def download_works_in_list(ls, cur_path):

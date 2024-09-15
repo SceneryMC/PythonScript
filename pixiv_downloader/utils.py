@@ -1,6 +1,7 @@
 import bisect
 import os
-from secret import pd_user_list, pd_path, pd_tags
+import sys
+from secret import pd_user_list, pd_path
 
 MAX_STR_LEN = 1000
 BOOKMARK_ONLY = '!BOOKMARK'
@@ -49,3 +50,19 @@ def get_downloaded_works(root_path):
                 result.add(get_pid(file))
     return result
     # return set(int(file.split('_')[0]) for files in (x for _, _, x in os.walk(root_path)) for file in files)
+
+
+def get_info_with_retry(f, _id, *args, **kwargs):
+    while True:
+        try:
+            result = f(*args, **kwargs)
+            print_in_one_line(result)
+            if result.illusts is not None:
+                break
+        except:
+            print("NETWORK ERROR!")
+        else:
+            print('FAILED: EMPTY OR ERROR RESULT', args, kwargs)
+            sys.exit(_id)
+            # {'error': {'user_message': '', 'message': 'Error occurred at the OAuth process. Please check your Access Token to fix this. Error Message: invalid_grant', 'reason': '', 'user_message_details': {}}}
+    return result
