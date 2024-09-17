@@ -2,16 +2,11 @@ import bisect
 import json
 import os
 from typing import Optional
-from pathvalidate import sanitize_filename
 from collections import defaultdict
-from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY, get_rank_idx
+from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY, get_rank_idx, get_target_name
 from secret import pd_path, pd_user_list, pd_symlink_path, pd_tags
 
 user_id_to_name = dict(pd_user_list)
-
-
-def get_target_name(info) -> str:
-    return sanitize_filename(info['title']) if info['page_count'] > 1 else info['filename']
 
 
 def get_all_exist_from_dir():

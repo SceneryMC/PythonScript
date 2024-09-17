@@ -19,7 +19,7 @@ def get_all_works_info():
     root = os.path.dirname(pd_path)
     downloaded_pids = get_downloaded_works(root)
     print(len(downloaded_pids))
-    with open('text_files/downloaded_info.json', 'r+', encoding='utf-8') as f:
+    with open('../text_files/downloaded_info.json', 'r+', encoding='utf-8') as f:
         d = json.load(f)
         missing = downloaded_pids - set(int(n) for n in d.keys())
         print(len(missing))

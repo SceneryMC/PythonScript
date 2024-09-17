@@ -2,6 +2,7 @@ import argparse
 import json
 import os.path
 import pickle
+import zipfile
 from collections import defaultdict
 from math import sqrt
 
@@ -247,17 +248,17 @@ import yaml
 #     a = sum_digits(a)
 # print(a)
 
-import itertools as it
-
-weapon = ['法器', '长枪', '单手剑', '大剑', '弓']
-sex_and_age = ['成男', '少男', '成女', '少女', '萝莉']
-rarity = ['四星', '常驻五星', '限定五星']
-ability = ['主C', '副C', '辅助']
-element = ['风', '岩', '雷', '草', '水', '火', '冰']
-
-
-result = [''.join(t) for t in it.product(rarity, element, weapon, sex_and_age, ability)]
-print(f"我们{'、'.join(result)}共{len(result)}推人怎么你了？？")
+# import itertools as it
+#
+# weapon = ['法器', '长枪', '单手剑', '大剑', '弓']
+# sex_and_age = ['成男', '少男', '成女', '少女', '萝莉']
+# rarity = ['四星', '常驻五星', '限定五星']
+# ability = ['主C', '副C', '辅助']
+# element = ['风', '岩', '雷', '草', '水', '火', '冰']
+#
+#
+# result = [''.join(t) for t in it.product(rarity, element, weapon, sex_and_age, ability)]
+# print(f"我们{'、'.join(result)}共{len(result)}推人怎么你了？？")
 
 # with open(r'n_image_downloader/text_files/all_n_site.json') as f:
 #     j = json.load(f)
@@ -274,11 +275,14 @@ print(f"我们{'、'.join(result)}共{len(result)}推人怎么你了？？")
 #         primes.add(n)
 # print(sorted(primes))
 
-path = os.path.join(r'F:\存储\其它\SYNC\ARTIST\0')
-ls = []
-for folder in os.listdir(path):
-    if (p := len(os.listdir(os.path.join(path, folder)))) > 2:
-        ls.append((folder, p))
-ls.sort(key=lambda x: -x[1])
-for folder, works in ls:
-    print(f"{folder:20}, {works}")
+# path = os.path.join(r'F:\存储\其它\SYNC\ARTIST\0')
+# ls = []
+# for folder in os.listdir(path):
+#     if (p := len(os.listdir(os.path.join(path, folder)))) > 2:
+#         ls.append((folder, p))
+# ls.sort(key=lambda x: -x[1])
+# for folder, works in ls:
+#     print(f"{folder:20}, {works}")
+
+with zipfile.ZipFile('./pixiv_downloader/117194428_ugoira1920x1080.zip', 'r') as zip_ref:
+    zip_ref.extractall('./pixiv_downloader/unzipped')

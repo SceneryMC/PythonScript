@@ -1,6 +1,5 @@
 import os
 import subprocess
-
 from pixiv_downloader.maintain_symlink import user_id_to_name
 from pixiv_downloader.utils import get_last_downloaded_user
 
