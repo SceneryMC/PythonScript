@@ -9,13 +9,13 @@ from functools import partial
 from pixivpy3 import *
 from path_cross_platform import path_fit_platform
 from pixiv_downloader.utils import get_file_pids, get_downloaded_works, BOOKMARK_ONLY, \
-    get_info_with_retry, replace_filename
-from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid, pd_tags, pd_headers, pd_ffmpeg_path
+    get_info_with_retry, replace_filename, get_ugoira_mp4_filename
+from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid, pd_tags, pd_headers
 
 MAX_PAGE = 1000
-FULL_DOWNLOAD_PAGE_LIMIT = 15
+FULL_DOWNLOAD_PAGE_LIMIT = 8
 FF_CONCAT = '!TMP.txt'
-FF_ARGS = '-c:v libx264 -profile:v baseline -pix_fmt yuv420p -an'
+FF_ARGS = '-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -profile:v baseline -pix_fmt yuv420p -an'
 
 path = path_fit_platform(pd_path)
 api = AppPixivAPI(proxies=proxies)
@@ -36,7 +36,7 @@ def get_ugoira_info(ugoira_id):
             if j and not j['error']:
                 return j['body']
         except:
-            print('NETWORK ERROR:', j)
+            print('NETWORK ERROR:')
             time.sleep(5)
         else:
             print('UNEXPECTED ERROR:', j['error'])
@@ -69,24 +69,24 @@ def convert_ugoira_frames(zip_dirpath: str, ugoira_info, interpolate=False):
     interpolate_arg = '-filter:v "minterpolate=\'fps=60\'"'
     if not interpolate:
         interpolate_arg = ''
-    mp4_filename = f"{work_id}.mp4"
     call_str = (
-        f'"{pd_ffmpeg_path}" -hide_banner -y '
+        f'ffmpeg -hide_banner -y '
         f'-i {FF_CONCAT} '
         f'{interpolate_arg} '
         f'{FF_ARGS} '
-        f"""'{os.path.join(zip_dirpath, mp4_filename)}' """
+        f"""'{os.path.join(zip_dirpath, get_ugoira_mp4_filename(work_id))}' """
     )
     call_stack = shlex.split(call_str)
-    subprocess.call(
+    returncode = subprocess.call(
         call_stack,
         cwd=os.path.abspath(zip_extract_folder),
         stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
-
-    shutil.rmtree(zip_extract_folder)
-    os.remove(zip_file)
-    return mp4_filename
+    if returncode == 0:
+        shutil.rmtree(zip_extract_folder)
+        os.remove(zip_file)
+    return returncode
 
 
 def get_root_path(root_dir):
@@ -113,9 +113,24 @@ def download_with_retry(file_url, path):
         try:
             api.download(file_url, path=path)
             break
-        except:
-            print('TOO FAST!')
+        except Exception as e:
+            print('TOO FAST!', e)
             time.sleep(5)
+
+
+def download_and_check_zip(url: str, cur_path):
+    while True:
+        download_with_retry(url, cur_path)
+        zip_file = os.path.join(cur_path, url.split('/')[-1])
+        try:
+            with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+                 if (p := zip_ref.testzip()) is None:
+                    break
+        except zipfile.BadZipfile:
+            print("BROKEN ZIP!")
+        else:
+            print("BROKEN FILE!", p)
+        os.remove(zip_file)
 
 
 def download_marked(method, _id, root_dir=None, inc_download=True,
@@ -148,13 +163,14 @@ def download_works_in_list(ls, cur_path):
                 os.makedirs(tmp_path, exist_ok=True)
                 for meta in work.meta_pages:
                     download_with_retry(meta.image_urls.original, tmp_path)
-            elif work.type == 'ugoira':
-                ugoira_info = get_ugoira_info(work.id)
-                download_with_retry(ugoira_info['originalSrc'], cur_path)
-                work['filename'] = convert_ugoira_frames(cur_path, ugoira_info)
-            else:
+            elif work.type != 'ugoira':
                 download_with_retry(work.meta_single_page.original_image_url, cur_path)
                 work['filename'] = work.meta_single_page.original_image_url.split('/')[-1]
+            elif not os.path.exists(os.path.join(cur_path, p := get_ugoira_mp4_filename(work.id))):
+                ugoira_info = get_ugoira_info(work.id)
+                download_and_check_zip(ugoira_info['originalSrc'], cur_path)
+                assert convert_ugoira_frames(cur_path, ugoira_info) == 0
+                work['filename'] = p
 
             # 将下载信息记入json文件
             if (_id := str(work.id)) not in info:
@@ -187,11 +203,4 @@ def main():
 
 
 if __name__ == '__main__':
-    # main()
-    # result = api.requests_call('GET', 'https://www.pixiv.net/ajax/illust/117194428/ugoira_meta',
-    #                            headers=pd_headers)
-    # j = api.parse_result(result)
-    result = get_work_info(117194428, False)
-    # download_with_retry('https://i.pximg.net/img-zip-ugoira/img/2024/03/24/02/40/22/117194428_ugoira1920x1080.zip', '.')
-    # print(j)
-    download_works_in_list([result], r'C:\Users\13308\PycharmProjects\SceneryMCPythonScript\pixiv_downloader\text_files')
+    main()

@@ -25,6 +25,10 @@ def get_file_pids(raw_data):
     return set(work.id for work in raw_data)
 
 
+def get_ugoira_mp4_filename(_id):
+    return f"{_id}.mp4"
+
+
 def replace_filename(filename):
     new_name = sanitize_filename(filename)
     if new_name in {'..', '.'} | {rank_name(i) for i in range(1, len(rank))}:
