@@ -1,6 +1,10 @@
 import bisect
 import os
+import re
 import sys
+import time
+import zipfile
+
 from pathvalidate import sanitize_filename
 from secret import pd_user_list, pd_path
 
@@ -18,7 +22,8 @@ def get_rank_idx(n):
 
 
 def get_pid(file_name):
-    return int(file_name.split('_')[0])
+    r = re.match(r'(\d+)(_\w+)?\.(\w+)', file_name)
+    return int(r.group(1))
 
 
 def get_file_pids(raw_data):
@@ -27,6 +32,10 @@ def get_file_pids(raw_data):
 
 def get_ugoira_mp4_filename(_id):
     return f"{_id}.mp4"
+
+
+def get_name_from_url(url) -> str:
+    return url.split("/")[-1]
 
 
 def replace_filename(filename):
@@ -68,17 +77,32 @@ def get_downloaded_works(root_path):
     # return set(int(file.split('_')[0]) for files in (x for _, _, x in os.walk(root_path)) for file in files)
 
 
-def get_info_with_retry(f, user_id, *args, **kwargs):
+def test_zip(file):
+    try:
+        with zipfile.ZipFile(file, 'r') as zip_ref:
+            if (p := zip_ref.testzip()) is None:
+                return True
+    except zipfile.BadZipfile:
+        print("BROKEN ZIP!")
+    else:
+        print("BROKEN FILE!", p)
+    os.remove(file)
+    return False
+
+
+def get_info_with_retry(f, *args, **kwargs):
     while True:
         try:
             result = f(*args, **kwargs)
             print_in_one_line(result)
             if result.illusts is not None:
                 break
-        except:
-            print("NETWORK ERROR!")
+        except Exception as e:
+            print("NETWORK ERROR!", e)
+            time.sleep(5)
         else:
             print('FAILED: EMPTY OR ERROR RESULT', args, kwargs)
-            sys.exit(user_id)
+            _id = args[0] if args else int(kwargs.get('user_id', -1))
+            sys.exit(_id)
             # {'error': {'user_message': '', 'message': 'Error occurred at the OAuth process. Please check your Access Token to fix this. Error Message: invalid_grant', 'reason': '', 'user_message_details': {}}}
     return result

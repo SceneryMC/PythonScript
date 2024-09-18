@@ -4,7 +4,7 @@ import shutil
 from collections import defaultdict
 from pixivpy3.utils import JsonDict
 from pixiv_downloader.download_marked import get_ugoira_mp4_filename, path, convert_ugoira_frames, \
-    get_ugoira_info, download_and_check_zip
+    get_ugoira_info, download_with_retry
 from pixiv_downloader.maintain_symlink import get_all_exist_from_json
 from pixiv_downloader.utils import BOOKMARK_ONLY, rank_name, rank, replace_filename
 from secret import pd_user_list, pd_path
@@ -62,7 +62,7 @@ def download_works_in_list(ls, cur_path):
             if not os.path.exists(os.path.join(cur_path, p := get_ugoira_mp4_filename(work.id))):
                 print(cur_path, work.page_count, folder_name)
                 ugoira_info = get_ugoira_info(work.id)
-                download_and_check_zip(ugoira_info['originalSrc'], cur_path)
+                download_with_retry(ugoira_info['originalSrc'], cur_path)
                 convert_ugoira_frames(cur_path, ugoira_info)
                 work['filename'] = p
             # 将下载信息记入json文件

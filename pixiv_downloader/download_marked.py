@@ -9,11 +9,11 @@ from functools import partial
 from pixivpy3 import *
 from path_cross_platform import path_fit_platform
 from pixiv_downloader.utils import get_file_pids, get_downloaded_works, BOOKMARK_ONLY, \
-    get_info_with_retry, replace_filename, get_ugoira_mp4_filename
+    get_info_with_retry, replace_filename, get_ugoira_mp4_filename, get_name_from_url, test_zip
 from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid, pd_tags, pd_headers
 
 MAX_PAGE = 1000
-FULL_DOWNLOAD_PAGE_LIMIT = 8
+FULL_DOWNLOAD_PAGE_LIMIT = 6
 FF_CONCAT = '!TMP.txt'
 FF_ARGS = '-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -profile:v baseline -pix_fmt yuv420p -an'
 
@@ -22,9 +22,13 @@ api = AppPixivAPI(proxies=proxies)
 api.auth(refresh_token=pd_token)
 
 
-def criteria_default(d, i, tags: set, ugoira_min_bookmarked: int):
-    tmp_result = set(e['name'] for e in d['tags']) & tags if i >= FULL_DOWNLOAD_PAGE_LIMIT else True
-    return tmp_result and not (d['type'] == 'ugoira' and d['total_bookmarks'] < ugoira_min_bookmarked)
+def criteria_default(d, i, tags: set):
+    tmp_result = (d['total_bookmarks'] >= 200 and not (d['type'] == 'ugoira' and d['total_bookmarks'] < 0))
+    if i == 0:
+        return True
+    elif i < FULL_DOWNLOAD_PAGE_LIMIT:
+        return tmp_result
+    return tmp_result and set(e['name'] for e in d['tags']) & tags
 
 
 def get_ugoira_info(ugoira_id):
@@ -35,8 +39,8 @@ def get_ugoira_info(ugoira_id):
             j = api.parse_result(result)
             if j and not j['error']:
                 return j['body']
-        except:
-            print('NETWORK ERROR:')
+        except Exception as e:
+            print('NETWORK ERROR:', e)
             time.sleep(5)
         else:
             print('UNEXPECTED ERROR:', j['error'])
@@ -44,7 +48,7 @@ def get_ugoira_info(ugoira_id):
 
 
 def convert_ugoira_frames(zip_dirpath: str, ugoira_info, interpolate=False):
-    zip_filename = ugoira_info['originalSrc'].split('/')[-1]
+    zip_filename = get_name_from_url(ugoira_info['originalSrc'])
     zip_file = os.path.join(zip_dirpath, zip_filename)
     work_id = zip_filename.split('_')[0]
     zip_extract_folder = os.path.join(zip_dirpath, work_id)
@@ -109,28 +113,19 @@ def get_work_info(_id, remove_download_link=True):
 
 
 def download_with_retry(file_url, path):
+    file = os.path.join(path, p := get_name_from_url(file_url))
     while True:
         try:
             api.download(file_url, path=path)
-            break
+            if not (p.endswith('.zip') and not test_zip(p)):
+                break
         except Exception as e:
-            print('TOO FAST!', e)
+            print('TOO FAST OR BROKEN FILE!', e)
             time.sleep(5)
-
-
-def download_and_check_zip(url: str, cur_path):
-    while True:
-        download_with_retry(url, cur_path)
-        zip_file = os.path.join(cur_path, url.split('/')[-1])
-        try:
-            with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-                 if (p := zip_ref.testzip()) is None:
-                    break
-        except zipfile.BadZipfile:
-            print("BROKEN ZIP!")
         else:
-            print("BROKEN FILE!", p)
-        os.remove(zip_file)
+            print('BROKEN ZIP!')
+        if os.path.exists(file):
+            os.remove(file)
 
 
 def download_marked(method, _id, root_dir=None, inc_download=True,
@@ -146,7 +141,7 @@ def download_marked(method, _id, root_dir=None, inc_download=True,
                 (inc_download and len(downloaded_pids & get_file_pids(ls)) != 0):
             break
         next = api.parse_qs(json_result.next_url)
-        json_result = get_info_with_retry(func, _id, **next)
+        json_result = get_info_with_retry(func, **next)
 
 
 def download_works_in_list(ls, cur_path):
@@ -165,10 +160,10 @@ def download_works_in_list(ls, cur_path):
                     download_with_retry(meta.image_urls.original, tmp_path)
             elif work.type != 'ugoira':
                 download_with_retry(work.meta_single_page.original_image_url, cur_path)
-                work['filename'] = work.meta_single_page.original_image_url.split('/')[-1]
+                work['filename'] = get_name_from_url(work.meta_single_page.original_image_url)
             elif not os.path.exists(os.path.join(cur_path, p := get_ugoira_mp4_filename(work.id))):
                 ugoira_info = get_ugoira_info(work.id)
-                download_and_check_zip(ugoira_info['originalSrc'], cur_path)
+                download_with_retry(ugoira_info['originalSrc'], cur_path)
                 assert convert_ugoira_frames(cur_path, ugoira_info) == 0
                 work['filename'] = p
 
@@ -196,8 +191,7 @@ def main():
                 print(f'----------------{user_name}----------------')
                 download_marked('user_illusts', user_id, user_name, inc,
                                 partial(criteria_default,
-                                        tags=set(elem for tags, cls in pd_tags for elem in tags),
-                                        ugoira_min_bookmarked=1000))
+                                        tags=set(elem for tags, cls in pd_tags for elem in tags)))
     elif method == 'b':
         download_marked('user_bookmarks_illust', pd_pid, BOOKMARK_ONLY, inc)
 
