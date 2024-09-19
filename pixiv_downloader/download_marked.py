@@ -23,10 +23,8 @@ api.auth(refresh_token=pd_token)
 
 
 def criteria_default(d, i, tags: set):
-    tmp_result = (d['total_bookmarks'] >= 200 and not (d['type'] == 'ugoira' and d['total_bookmarks'] < 0))
-    if i == 0:
-        return True
-    elif i < FULL_DOWNLOAD_PAGE_LIMIT:
+    tmp_result = (d['total_bookmarks'] >= min(300, i * 200) and not (d['type'] == 'ugoira' and d['total_bookmarks'] < 0))
+    if i < FULL_DOWNLOAD_PAGE_LIMIT:
         return tmp_result
     return tmp_result and set(e['name'] for e in d['tags']) & tags
 
@@ -117,7 +115,7 @@ def download_with_retry(file_url, path):
     while True:
         try:
             api.download(file_url, path=path)
-            if not (p.endswith('.zip') and not test_zip(p)):
+            if not (p.endswith('.zip') and not test_zip(file)):
                 break
         except Exception as e:
             print('TOO FAST OR BROKEN FILE!', e)

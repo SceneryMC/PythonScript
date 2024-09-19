@@ -40,8 +40,8 @@ def get_name_from_url(url) -> str:
 
 def replace_filename(filename):
     new_name = sanitize_filename(filename)
-    if new_name in {'..', '.'} | {rank_name(i) for i in range(1, len(rank))}:
-        new_name += "_disambiguate"
+    if new_name in {'..', '.', ''} | {rank_name(i) for i in range(1, len(rank))}:
+        new_name += "_disambiguation"
     return new_name
 
 
