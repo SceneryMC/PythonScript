@@ -1,12 +1,22 @@
 import bisect
 import json
 import os
+import shutil
 from typing import Optional
-from collections import defaultdict
 from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY, get_rank_idx, get_target_name
 from secret import pd_path, pd_user_list, pd_symlink_path, pd_tags
 
 user_id_to_name = dict(pd_user_list)
+
+
+def remove_wrong_symlink():
+    names = {rank_name(i) for i in range(1, len(rank))}
+    for user in os.listdir(os.path.dirname(pd_path)):
+        user_root = os.path.join(os.path.dirname(pd_path), user)
+        abt_delete = set(os.listdir(user_root)) & names
+        for folder in abt_delete:
+            print(p := os.path.join(user_root, folder))
+            shutil.rmtree(p)
 
 
 def get_all_exist_from_dir():
@@ -34,8 +44,8 @@ def get_all_exist_from_json():
         target_name = get_target_name(info)
         user_or_bookmark = BOOKMARK_ONLY if info['is_bookmarked'] else user_id_to_name[user_id]
         result[_id] = os.path.join(os.path.dirname(pd_path),
-                                        user_or_bookmark,
-                                        target_name)
+                                   user_or_bookmark,
+                                   target_name)
     return result
 
 
@@ -47,27 +57,30 @@ def map_duplicate_tags_to_one(given_tag) -> tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-def create_symlinks(work_id, info, sym, downloaded_paths):
+def create_symlinks(work_id, info, downloaded_paths):
     def create_symlink_general(path):
         os.makedirs(path, exist_ok=True)
-        if not os.path.exists(p := os.path.join(path, get_target_name(info))):
+        p = os.path.join(path, get_target_name(info))
+        if not os.path.islink(p):
             os.symlink(downloaded_paths[work_id], p)
-    def create_symlink_by_bookmark_num(base_path):
+            # print(f'CREATED: {downloaded_paths[work_id]} to {p}')
+    def create_symlink_by_bookmark_num_and_type(base_path):
         if idx > 0:
             create_symlink_general(os.path.join(base_path, rank_name(idx)))
+        if get_target_name(info).endswith('.mp4'):
+            create_symlink_general(os.path.join(base_path, '!UGOIRA'))
 
     idx = get_rank_idx(info['total_bookmarks'])
     user_id = info['user']['id']
     for tag in info['tags']:
-        if (result := map_duplicate_tags_to_one(tag['name']))[1] is None or result[0] in sym[work_id]:
+        if (result := map_duplicate_tags_to_one(tag['name']))[1] is None:
             continue
         tag_projected, cls = result
         base = os.path.join(pd_symlink_path, cls, tag_projected)
         user_path = os.path.join(base, user_id_to_name.get(user_id, BOOKMARK_ONLY))
         create_symlink_general(user_path)
-        create_symlink_by_bookmark_num(base)
-        sym[work_id].append(tag_projected)
-    create_symlink_by_bookmark_num(os.path.dirname(downloaded_paths[work_id]))
+        create_symlink_by_bookmark_num_and_type(base)
+    create_symlink_by_bookmark_num_and_type(os.path.dirname(downloaded_paths[work_id]))
 
 
 def add_new_tags_of_bookmark_num():
@@ -87,16 +100,18 @@ def maintain_symlink_template():
     downloaded_paths = get_all_exist_from_json()
     with open('text_files/downloaded_info.json', 'r', encoding='utf-8') as f:
         d = json.load(f)
-    with open('text_files/created_symlinks.json', 'r', encoding='utf-8') as f:
-        sym = defaultdict(list, json.load(f))
     for _id, info in d.items():
         if info is None or 'user' not in info:
             continue
-        create_symlinks(_id, info, sym, downloaded_paths)
-    with open('text_files/created_symlinks.json', 'w', encoding='utf-8') as f:
-        json.dump(dict(sym), f, ensure_ascii=False, indent=True)
+        create_symlinks(_id, info, downloaded_paths)
 
 
 if __name__ == '__main__':
     maintain_symlink_template()
     # add_new_tags_of_bookmark_num()
+    # remove_wrong_symlink()
+    # with open('text_files/downloaded_info.json', 'r', encoding='utf-8') as f:
+    #     j = json.load(f)
+    # for _id, info in j.items():
+    #     if info and 'user' in info and '_disambiguation' in get_target_name(info):
+    #         print(_id, info['user']['name'], info['title'])

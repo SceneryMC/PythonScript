@@ -42,16 +42,6 @@ def move_wrong_jpg():
         shutil.move(d[_id], './tmp')
 
 
-def remove_wrong_symlink():
-    names = {rank_name(i) for i in range(1, len(rank))}
-    for user in os.listdir(os.path.dirname(pd_path)):
-        user_root = os.path.join(os.path.dirname(pd_path), user)
-        abt_delete = set(os.listdir(user_root)) & names
-        for folder in abt_delete:
-            print(p := os.path.join(user_root, folder))
-            shutil.rmtree(p)
-
-
 def download_works_in_list(ls, cur_path):
     with open('../text_files/downloaded_info.json', 'r+', encoding='utf-8') as f:
         info = json.load(f)
