@@ -7,6 +7,7 @@ from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY, get_
 from secret import pd_path, pd_user_list, pd_symlink_path, pd_tags
 
 user_id_to_name = dict(pd_user_list)
+dl_database = 'text_files/downloaded_info.json'
 
 
 def remove_wrong_symlink():
@@ -33,9 +34,9 @@ def get_all_exist_from_dir():
     return result
 
 
-def get_all_exist_from_json():
+def get_all_exist_from_json(downloaded_database):
     result = {}
-    with open('text_files/downloaded_info.json', 'r', encoding='utf-8') as f:
+    with open(downloaded_database, 'r', encoding='utf-8') as f:
         d = json.load(f)
     for _id, info in d.items():
         if info is None or 'user' not in info:
@@ -63,7 +64,7 @@ def create_symlinks(work_id, info, downloaded_paths):
         p = os.path.join(path, get_target_name(info))
         if not os.path.islink(p):
             os.symlink(downloaded_paths[work_id], p)
-            # print(f'CREATED: {downloaded_paths[work_id]} to {p}')
+            print(f'CREATED: {downloaded_paths[work_id]} to {p}')
     def create_symlink_by_bookmark_num_and_type(base_path):
         if idx > 0:
             create_symlink_general(os.path.join(base_path, rank_name(idx)))
@@ -84,7 +85,7 @@ def create_symlinks(work_id, info, downloaded_paths):
 
 
 def add_new_tags_of_bookmark_num():
-    with open('text_files/downloaded_info.json', 'r', encoding='utf-8') as f:
+    with open(dl_database, 'r', encoding='utf-8') as f:
         d = json.load(f)
     for _id, info in d.items():
         if info is None or 'user' not in info:
@@ -92,13 +93,13 @@ def add_new_tags_of_bookmark_num():
         idx = bisect.bisect_right(rank, info['total_bookmarks']) - 1
         if idx > 0:
             d[_id]['tags'].append({'name': rank_name(idx), "translated_name": None})
-    with open('text_files/downloaded_info.json', 'w', encoding='utf-8') as f:
+    with open(dl_database, 'w', encoding='utf-8') as f:
         json.dump(d, f, ensure_ascii=False, indent=True)
 
 
-def maintain_symlink_template():
-    downloaded_paths = get_all_exist_from_json()
-    with open('text_files/downloaded_info.json', 'r', encoding='utf-8') as f:
+def maintain_symlink_template(downloaded_database):
+    downloaded_paths = get_all_exist_from_json(downloaded_database)
+    with open(downloaded_database, 'r', encoding='utf-8') as f:
         d = json.load(f)
     for _id, info in d.items():
         if info is None or 'user' not in info:
@@ -107,7 +108,7 @@ def maintain_symlink_template():
 
 
 if __name__ == '__main__':
-    maintain_symlink_template()
+    maintain_symlink_template(dl_database)
     # add_new_tags_of_bookmark_num()
     # remove_wrong_symlink()
     # with open('text_files/downloaded_info.json', 'r', encoding='utf-8') as f:

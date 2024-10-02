@@ -9,9 +9,12 @@ from pixiv_downloader.maintain_symlink import get_all_exist_from_json
 from pixiv_downloader.utils import BOOKMARK_ONLY, rank_name, rank, replace_filename
 from secret import pd_user_list, pd_path
 
+dl_database = '../text_files/downloaded_info.json'
+redownload_ls = '../text_files/redownload_ls.json'
+
 
 def split_record():
-    with open('../text_files/downloaded_info.json', 'r', encoding='utf-8') as f:
+    with open(dl_database, 'r', encoding='utf-8') as f:
         j = json.load(f)
 
     j_write_back = {}
@@ -28,22 +31,22 @@ def split_record():
     print(len(j_write_back), len(j_ls))
     assert len(j_write_back) + len(j_ls) == len(j)
 
-    with open('../text_files/downloaded_info.json', 'w', encoding='utf-8') as f:
+    with open(dl_database, 'w', encoding='utf-8') as f:
         json.dump(j_write_back, f, ensure_ascii=False, indent=True)
-    with open('../text_files/redownload_ls.json', 'w', encoding='utf-8') as f:
+    with open(redownload_ls, 'w', encoding='utf-8') as f:
         json.dump(j_ls, f, ensure_ascii=False, indent=True)
 
 
 def move_wrong_jpg():
-    d = get_all_exist_from_json()
-    with open('../text_files/redownload_ls.json', 'r', encoding='utf-8') as f:
+    d = get_all_exist_from_json(dl_database)
+    with open(redownload_ls, 'r', encoding='utf-8') as f:
         j = json.load(f)
     for _id, info in j.items():
         shutil.move(d[_id], './tmp')
 
 
 def download_works_in_list(ls, cur_path):
-    with open('../text_files/downloaded_info.json', 'r+', encoding='utf-8') as f:
+    with open(dl_database, 'r+', encoding='utf-8') as f:
         info = json.load(f)
         count = 0
         for work in ls:
@@ -73,7 +76,7 @@ def redownload():
             yield lst[i:i + chunk_size]
 
     m = dict(pd_user_list)
-    with open('../text_files/redownload_ls.json', 'r', encoding='utf-8') as f:
+    with open(redownload_ls, 'r', encoding='utf-8') as f:
         j = json.load(f)
     d = defaultdict(list)
     for _id, info in j.items():
