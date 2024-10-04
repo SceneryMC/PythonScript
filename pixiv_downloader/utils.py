@@ -38,9 +38,13 @@ def get_name_from_url(url) -> str:
     return url.split("/")[-1]
 
 
+def get_rank_folders():
+    return {rank_name(i) for i in range(1, len(rank))}
+
+
 def replace_filename(filename):
     new_name = sanitize_filename(filename)
-    if new_name in {'..', '.', ''} | {rank_name(i) for i in range(1, len(rank))}:
+    if new_name in {'..', '.', ''} | get_rank_folders():
         new_name += "_disambiguation"
     return new_name
 
@@ -67,12 +71,15 @@ def get_last_downloaded_user():
 
 def get_downloaded_works(root_path):
     result = set()
-    for _, folders, files in os.walk(root_path):
+    for root, folders, files in os.walk(root_path):
+        if os.path.basename(root) in get_rank_folders():
+            continue
         if not folders and files:
             result |= set(get_pid(file) for file in files)
         else:
             for file in files:
-                result.add(get_pid(file))
+                if not file.startswith('limit_'):
+                    result.add(get_pid(file))
     return result
     # return set(int(file.split('_')[0]) for files in (x for _, _, x in os.walk(root_path)) for file in files)
 
@@ -85,8 +92,7 @@ def test_zip(file):
     except zipfile.BadZipfile:
         print("BROKEN ZIP!")
     else:
-        print("BROKEN FILE!", p)
-    os.remove(file)
+        print("THIS SHOULD NOT HAPPEN!", p)
     return False
 
 

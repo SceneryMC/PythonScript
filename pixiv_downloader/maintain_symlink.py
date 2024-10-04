@@ -3,7 +3,8 @@ import json
 import os
 import shutil
 from typing import Optional
-from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY, get_rank_idx, get_target_name
+from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY, get_rank_idx, get_target_name, \
+    replace_filename
 from secret import pd_path, pd_user_list, pd_symlink_path, pd_tags
 
 user_id_to_name = dict(pd_user_list)
@@ -111,8 +112,20 @@ if __name__ == '__main__':
     maintain_symlink_template(dl_database)
     # add_new_tags_of_bookmark_num()
     # remove_wrong_symlink()
+
     # with open('text_files/downloaded_info.json', 'r', encoding='utf-8') as f:
     #     j = json.load(f)
     # for _id, info in j.items():
     #     if info and 'user' in info and '_disambiguation' in get_target_name(info):
-    #         print(_id, info['user']['name'], info['title'])
+    #         print(f"{_id:20}{info['user']['name']:30}{info['title']:10}{get_target_name(info):30}")
+    #         local_path = os.path.join(os.path.dirname(pd_path), user_id_to_name.get(info['user']['id'], BOOKMARK_ONLY))
+    #         files = [s for s in os.listdir(local_path) if s.startswith(str(_id))]
+    #         if files:
+    #             # assert info['page_count'] > 1
+    #             # print("CORRECT", files)
+    #             dst = os.path.join(local_path, get_target_name(info))
+    #             os.makedirs(dst, exist_ok=True)
+    #             for i in range(info['page_count']):
+    #                 os.rename(os.path.join(local_path, files[i]), os.path.join(dst, files[i]))
+    #         else:
+    #             print("MISSING, ONLY TWO")
