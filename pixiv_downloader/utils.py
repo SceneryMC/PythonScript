@@ -96,12 +96,12 @@ def test_zip(file):
     return False
 
 
-def get_info_with_retry(f, *args, **kwargs):
+def get_info_with_retry(f, keyword='illusts', *args, **kwargs):
     while True:
         try:
             result = f(*args, **kwargs)
             print_in_one_line(result)
-            if result.illusts is not None:
+            if 'error' not in result and result[keyword] is not None:
                 break
         except Exception as e:
             print("NETWORK ERROR!", e)

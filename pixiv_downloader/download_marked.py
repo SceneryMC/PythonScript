@@ -126,10 +126,10 @@ def download_with_retry(file_url, path):
             os.remove(file)
 
 
-def download_marked(method, _id, root_dir=None, inc_download=True,
+def download_marked(method, method_kwargs, root_dir=None, inc_download=True,
                     criteria=lambda d, i: True):
     func = getattr(api, method)
-    json_result = get_info_with_retry(func, _id)
+    json_result = get_info_with_retry(func, **method_kwargs)
     cur_path = get_root_path(root_dir)
     downloaded_pids = get_downloaded_works(cur_path)
     for i in range(MAX_PAGE):
@@ -187,11 +187,11 @@ def main():
                 start = ''
             if start == '':
                 print(f'----------------{user_name}----------------')
-                download_marked('user_illusts', user_id, user_name, inc,
+                download_marked('user_illusts', {'user_id': user_id}, user_name, inc,
                                 partial(criteria_default,
                                         tags=set(elem for tags, cls in pd_tags for elem in tags)))
     elif method == 'b':
-        download_marked('user_bookmarks_illust', pd_pid, BOOKMARK_ONLY, inc)
+        download_marked('user_bookmarks_illust', {'user_id': pd_pid}, BOOKMARK_ONLY, inc)
 
 
 if __name__ == '__main__':
