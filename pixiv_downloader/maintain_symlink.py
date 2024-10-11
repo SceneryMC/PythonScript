@@ -61,10 +61,16 @@ def map_duplicate_tags_to_one(given_tag) -> tuple[Optional[str], Optional[str]]:
 def create_symlinks(work_id, info, downloaded_paths):
     def create_symlink_general(path):
         os.makedirs(path, exist_ok=True)
-        p = os.path.join(path, get_target_name(info))
-        if not os.path.islink(p):
-            os.symlink(downloaded_paths[work_id], p)
-            print(f'CREATED: {downloaded_paths[work_id]} to {p}')
+        dst_name = get_target_name(info)
+        index = 0
+        while os.path.islink(p := os.path.join(path, dst_name + ('' if index == 0 else f'-{index}'))):
+            if (os.path.isfile(downloaded_paths[work_id])
+                    or os.path.normcase(downloaded_paths[work_id]) == os.path.normcase(os.path.realpath(p))):
+                return
+            index += 1
+        os.symlink(downloaded_paths[work_id], p)
+        print(f'CREATED: {downloaded_paths[work_id]} to {p}')
+
     def create_symlink_by_bookmark_num_and_type(base_path):
         if idx > 0:
             create_symlink_general(os.path.join(base_path, rank_name(idx)))
