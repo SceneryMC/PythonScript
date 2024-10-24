@@ -10,6 +10,7 @@ import fitz
 import freeplane
 import lxml.etree
 import yaml
+from sympy import factor
 
 # new_lines = []
 # with open(r"C:\Users\SceneryMC\Source\Repos\assembly\first_window.asm") as f:
@@ -284,5 +285,58 @@ import yaml
 # for folder, works in ls:
 #     print(f"{folder:20}, {works}")
 
-with zipfile.ZipFile('./pixiv_downloader/117194428_ugoira1920x1080.zip', 'r') as zip_ref:
-    zip_ref.extractall('./pixiv_downloader/unzipped')
+# with zipfile.ZipFile('./pixiv_downloader/117194428_ugoira1920x1080.zip', 'r') as zip_ref:
+#     zip_ref.extractall('./pixiv_downloader/unzipped')
+
+
+from sympy.matrices.normalforms import smith_normal_form
+import sympy as sp
+
+# 定义符号变量 x
+x = sp.Symbol('x')
+
+# 定义多项式矩阵，元素为关于 x 的多项式，系数为实数
+A = sp.Matrix([
+    [-x + 1, 2 * x - 1, x],
+    [x, x ** 2, -x],
+    [x ** 2 + 1, x ** 2 + x - 1, -x ** 2],
+])
+
+B = sp.Matrix([
+    [x ** 2 - 1, 0],
+    [0, (x - 1) ** 3],
+])
+
+C = sp.Matrix([
+    [x ** 3 * (x - 2), 0, 0],
+    [0, x * (x + 1), 0],
+    [0, 0, x * (x - 2) ** 2],
+])
+
+# 计算Smith标准形
+domain = sp.QQ[x]
+SNF = smith_normal_form(C, domain=domain).applyfunc(lambda y: sp.factor(y))
+
+# 输出Smith标准形
+print("Smith标准形:")
+sp.pprint(SNF)
+
+# M = sp.Matrix([
+#     [2, 1, 0, -1],
+#     [0, 2, 0, 1],
+#     [0, 0, 2, 1],
+#     [0, 0, 0, 2],
+# ])
+
+x, y, z = sp.symbols('x y z')
+
+M = sp.Matrix([
+    [2, 4, 2, 2],
+    [1, 2, 1, 1],
+    [1, 2, 1, 1],
+    [1, 2, 1, 1],
+])
+
+P, J = M.jordan_form()
+sp.pprint(P)
+sp.pprint(J)

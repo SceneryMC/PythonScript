@@ -24,7 +24,7 @@ api.auth(refresh_token=pd_token)
 
 def criteria_default(d, i, tags: set):
     tmp_result = (d['total_bookmarks'] >= min(300, i * 200) and not (d['type'] == 'ugoira' and d['total_bookmarks'] < 0))
-    if i < FULL_DOWNLOAD_PAGE_LIMIT:
+    if i < FULL_DOWNLOAD_PAGE_LIMIT or d['total_bookmarks'] >= 5000:
         return tmp_result
     return tmp_result and set(e['name'] for e in d['tags']) & tags
 

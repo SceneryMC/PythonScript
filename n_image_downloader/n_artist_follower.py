@@ -42,16 +42,14 @@ def visit_artist(artist, last_work, Chinese_only):
     works = []
     inf = max(last_work, local_last_work[artist])
     for page in range(1, MAX_PAGE + 1):
-        tmp_works = []
         results = get_page_with_retry(artist, page)
         work_id = -1
         for tp in results:
             work_id = int(re.match(r'https://nhentai\.net/g/(\d+)/', tp[0]).group(1))
             if work_id > inf and (not Chinese_only or tp[1] == flag_CN):
-                tmp_works.append(work_id)
+                works.append(work_id)
         if work_id <= inf or len(results) < WORKS_PER_PAGE:
             break
-        works.extend(tmp_works)
         time.sleep(0.5)
     return works
 
