@@ -314,7 +314,7 @@ C = sp.Matrix([
 ])
 
 # 计算Smith标准形
-domain = sp.QQ[x]
+domain = sp.QQ[x] #  sp.RR 是实数域，RR[x] 是实数系数的多项式环。虽然实数域是一个域，RR[x] 应该是一个主理想整环，但在某些情况下，sympy 的实现可能会对其处理不够完善，导致不支持某些操作。
 SNF = smith_normal_form(C, domain=domain).applyfunc(lambda y: sp.factor(y))
 
 # 输出Smith标准形
