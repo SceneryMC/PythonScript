@@ -6,7 +6,7 @@ from pixiv_downloader.maintain_symlink import map_duplicate_tags_to_one, get_all
 from pixiv_downloader.utils import replace_filename
 from secret import pd_user_list
 
-processed = set(t[0] for t in pd_user_list[:pd_user_list.index((345212, '呱々唄七つ'))])
+processed = set(t[0] for t in pd_user_list[:pd_user_list.index((24230399, 'LBZ'))])
 
 
 def verify(picked, last, _id, info, downloaded_paths):

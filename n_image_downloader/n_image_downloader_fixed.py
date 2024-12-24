@@ -94,7 +94,7 @@ class NImageDownloader:
                 self.driver.get(f"{generate_url(work)}/1")
                 s = self.driver.page_source
                 pattern = re.search(
-                    r'<img src="https://i(\d)\.nhentai\.net/galleries/(\d+)/\d+\.(jpg|png|gif)',
+                    r'<img src="https://i(\d)\.nhentai\.net/galleries/(\d+)/\d+\.(jpg|png|gif|webp)',
                     s)
                 return pattern.group(1), pattern.group(2)
             except:
