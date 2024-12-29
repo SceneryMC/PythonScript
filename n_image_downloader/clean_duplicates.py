@@ -22,7 +22,7 @@ def cv_imread(path):
 
 def get_keypoints_of_a_work(work_path) -> keypoints_storage:
     result = []
-    file_list = [file for file in os.listdir(work_path) if re.match(r"\d+\.(png|jpg)", file)]
+    file_list = [file for file in os.listdir(work_path) if re.match(r"\d+\.(png|jpg|webp)", file)]
     for image_name in sorted(file_list, key=lambda x: int(x[:x.index('.')])):
         try:
             img = cv_imread(os.path.join(work_path, image_name))
