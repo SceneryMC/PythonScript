@@ -9,7 +9,8 @@ from functools import partial
 from pixivpy3 import *
 from path_cross_platform import path_fit_platform
 from pixiv_downloader.utils import get_file_pids, get_downloaded_works, BOOKMARK_ONLY, \
-    get_info_with_retry, replace_filename, get_ugoira_mp4_filename, get_name_from_url, test_zip
+    get_info_with_retry, replace_filename, get_ugoira_mp4_filename, get_name_from_url, test_zip, rank_update, \
+    get_rank_idx, dl_database, updated_info
 from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid, pd_tags, pd_headers
 
 MAX_PAGE = 1000
@@ -143,38 +144,52 @@ def download_marked(method, method_kwargs, root_dir=None, inc_download=True,
 
 
 def download_works_in_list(ls, cur_path):
-    with open('text_files/downloaded_info.json', 'r+', encoding='utf-8') as f:
+    updated = []
+    with open(dl_database, 'r+', encoding='utf-8') as f:
         info = json.load(f)
         count = 0
         for work in ls:
             folder_name = replace_filename(work.title)
             print(cur_path, work.page_count, folder_name)
 
-            # 以download_with_retry为判断是否下载完成的方法，因为允许BOOKMARK重复下载作品
-            if work.page_count > 1:  # 此时不可能为ugoira
-                tmp_path = os.path.join(cur_path, folder_name)
-                os.makedirs(tmp_path, exist_ok=True)
-                for meta in work.meta_pages:
-                    download_with_retry(meta.image_urls.original, tmp_path)
-            elif work.type != 'ugoira':
-                download_with_retry(work.meta_single_page.original_image_url, cur_path)
-                work['filename'] = get_name_from_url(work.meta_single_page.original_image_url)
-            elif not os.path.exists(os.path.join(cur_path, p := get_ugoira_mp4_filename(work.id))):
-                ugoira_info = get_ugoira_info(work.id)
-                download_with_retry(ugoira_info['originalSrc'], cur_path)
-                assert convert_ugoira_frames(cur_path, ugoira_info) == 0
-                work['filename'] = p
+            # 以download_with_retry为判断是否下载完成的方法，因为允许BOOKMARK重复下载作品；如果已存在但title不同，视作作者更改了title，跳过
+            if (_id := str(work.id)) not in info or info[_id]['title'] == work.title:
+                if work.page_count > 1:  # 此时不可能为ugoira
+                    tmp_path = os.path.join(cur_path, folder_name)
+                    os.makedirs(tmp_path, exist_ok=True)
+                    for meta in work.meta_pages:
+                        download_with_retry(meta.image_urls.original, tmp_path)
+                elif work.type != 'ugoira':
+                    download_with_retry(work.meta_single_page.original_image_url, cur_path)
+                    work['filename'] = get_name_from_url(work.meta_single_page.original_image_url)
+                else:
+                    work['filename'] = get_ugoira_mp4_filename(work.id)
+                    if not os.path.exists(os.path.join(cur_path, work['filename'])):
+                        ugoira_info = get_ugoira_info(work.id)
+                        download_with_retry(ugoira_info['originalSrc'], cur_path)
+                        assert convert_ugoira_frames(cur_path, ugoira_info) == 0
+
 
             # 将下载信息记入json文件
-            if (_id := str(work.id)) not in info:
+            if _id not in info:
                 del work['meta_pages'], work['meta_single_page'], work['image_urls']
                 info[_id] = work
+            elif rank_update(info[_id]['total_bookmarks'], work['total_bookmarks']):
+                updated.append((_id, info[_id]['total_bookmarks'], work['total_bookmarks']))
+                print(info[_id]['total_bookmarks'], work['total_bookmarks'])
+                count += 1
             else:
-                print(f"SKIPPED {_id}")
+                print(f"SKIPPED {_id}", info[_id]['total_bookmarks'], work['total_bookmarks'])
                 count += 1
         if count != len(ls):
             f.seek(0)
             json.dump(info, f, ensure_ascii=False, indent=True)
+    if updated:
+        with open(updated_info, 'r', encoding='utf-8') as f:
+            ls : list = json.load(f)
+        ls.extend(updated)
+        with open(updated_info, 'w', encoding='utf-8') as f:
+            json.dump(ls, f, ensure_ascii=False, indent=True)
 
 
 def main():

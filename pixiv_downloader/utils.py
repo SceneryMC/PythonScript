@@ -12,6 +12,9 @@ MAX_STR_LEN = 1000
 BOOKMARK_ONLY = '!BOOKMARK'
 rank = [0, 500, 1000, 2000, 5000, 10000]
 
+dl_database = 'text_files/downloaded_info.json'
+updated_info = 'text_files/updated_info.json'
+
 
 def rank_name(idx):
     return f"!{rank[idx]}"
@@ -21,9 +24,17 @@ def get_rank_idx(n):
     return bisect.bisect_right(rank, n) - 1
 
 
+def rank_update(orig, curr):
+    return get_rank_idx(orig) != get_rank_idx(curr)
+
+
 def get_pid(file_name):
     r = re.match(r'(\d+)(_\w+)?\.(\w+)', file_name)
     return int(r.group(1))
+
+
+def get_pids(ls):
+    return set(get_pid(file) for file in ls)
 
 
 def get_file_pids(raw_data):
@@ -75,7 +86,7 @@ def get_downloaded_works(root_path):
         if os.path.basename(root) in get_rank_folders():
             continue
         if not folders and files:
-            result |= set(get_pid(file) for file in files)
+            result |= get_pids(files)
         else:
             for file in files:
                 if not file.startswith('limit_'):
@@ -112,3 +123,9 @@ def get_info_with_retry(f, keyword='illusts', *args, **kwargs):
             sys.exit(_id)
             # {'error': {'user_message': '', 'message': 'Error occurred at the OAuth process. Please check your Access Token to fix this. Error Message: invalid_grant', 'reason': '', 'user_message_details': {}}}
     return result
+
+
+if __name__ == '__main__':
+    print(rank_name(get_rank_idx(499)))
+    print(rank_name(get_rank_idx(500)))
+    print(rank_name(get_rank_idx(501)))

@@ -3,11 +3,11 @@ import json
 import os
 import shutil
 from typing import Optional
-from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY, get_rank_idx, get_target_name
+from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY, get_rank_idx, get_target_name, \
+    get_rank_folders, dl_database, updated_info, get_ugoira_mp4_filename, get_pids
 from secret import pd_path, pd_user_list, pd_symlink_path, pd_tags
 
 user_id_to_name = dict(pd_user_list)
-dl_database = 'text_files/downloaded_info.json'
 
 
 def remove_wrong_symlink():
@@ -21,16 +21,24 @@ def remove_wrong_symlink():
 
 
 def get_all_exist_from_dir():
+    def test_duplicate_and_assign(wid, ipath):
+        if wid in result:
+            print(f"DUPLICATE:{wid} exists at {result[wid]} and {ipath}")
+        else:
+            result[wid] = ipath
     result = {}
     root = os.path.dirname(pd_path)
     for user in os.listdir(root):
+        if user == 'Hood':
+            continue
         user_path = os.path.join(root, user)
         for item in os.listdir(user_path):
-            if os.path.isdir(item_path := os.path.join(user_path, item)):
-                for work_id in set(get_pid(file) for file in os.listdir(item_path)):
-                    result[work_id] = item_path
-            else:
-                result[get_pid(item)] = item_path
+            if item not in get_rank_folders() and item not in {'!UGOIRA', 'limit_mypixiv_360.png', 'limit_sanity_level_360.png', 'limit_unknown_360.png'}:
+                if os.path.isdir(item_path := os.path.join(user_path, item)):
+                    for work_id in get_pids(os.listdir(item_path)):
+                        test_duplicate_and_assign(work_id, item_path)
+                else:
+                    test_duplicate_and_assign(get_pid(item), item_path)
     return result
 
 
@@ -58,7 +66,31 @@ def map_duplicate_tags_to_one(given_tag) -> tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-def create_symlinks(work_id, info, downloaded_paths):
+def create_symlinks(work_id, info, downloaded_paths, updated):
+    def remove_old_num_symlink(path):
+        dst_name = get_target_name(info)
+        if os.path.isfile(downloaded_paths[work_id]):
+            fp = os.path.join(path, dst_name)
+            # os.remove(fp)
+            print(f"DELETED FILE: {fp}")
+        else:
+            index = 0
+            while os.path.islink(p := os.path.join(path, dst_name + ('' if index == 0 else f'-{index}'))):
+                try:
+                    pids = get_pids(os.listdir(p))
+                except:
+                    os.remove(p)
+                    print(f"REMOVED INVALID SYMLINK: {p}")
+                    break
+                if int(work_id) in pids:
+                    if len(pids) > 1:
+                        print(f"SKIP MORE THAN ONE: {p}")
+                    else:
+                        os.remove(p)
+                        print(f"DELETED FOLDER: {p}")
+                    break
+                index += 1
+
     def create_symlink_general(path):
         os.makedirs(path, exist_ok=True)
         dst_name = get_target_name(info)
@@ -71,23 +103,24 @@ def create_symlinks(work_id, info, downloaded_paths):
         os.symlink(downloaded_paths[work_id], p)
         print(f'CREATED: {downloaded_paths[work_id]} to {p}')
 
-    def create_symlink_by_bookmark_num_and_type(base_path):
+    def maintain_symlink_by_bookmark_num_and_type(base_path):
         if idx > 0:
             create_symlink_general(os.path.join(base_path, rank_name(idx)))
+        if (old_idx := get_rank_idx(updated.get(work_id, 0))) > 0:
+            remove_old_num_symlink(os.path.join(base_path, rank_name(old_idx)))
         if get_target_name(info).endswith('.mp4'):
             create_symlink_general(os.path.join(base_path, '!UGOIRA'))
 
     idx = get_rank_idx(info['total_bookmarks'])
     user_id = info['user']['id']
-    for tag in info['tags']:
-        if (result := map_duplicate_tags_to_one(tag['name']))[1] is None:
-            continue
-        tag_projected, cls = result
-        base = os.path.join(pd_symlink_path, cls, tag_projected)
-        user_path = os.path.join(base, user_id_to_name.get(user_id, BOOKMARK_ONLY))
-        create_symlink_general(user_path)
-        create_symlink_by_bookmark_num_and_type(base)
-    create_symlink_by_bookmark_num_and_type(os.path.dirname(downloaded_paths[work_id]))
+    results = set(map_duplicate_tags_to_one(tag['name']) for tag in info['tags'])
+    for tag_projected, cls in results:
+        if cls is not None:
+            base = os.path.join(pd_symlink_path, cls, tag_projected)
+            user_path = os.path.join(base, user_id_to_name.get(user_id, BOOKMARK_ONLY))
+            create_symlink_general(user_path)
+            maintain_symlink_by_bookmark_num_and_type(base)
+    maintain_symlink_by_bookmark_num_and_type(os.path.dirname(downloaded_paths[work_id]))
 
 
 def add_new_tags_of_bookmark_num():
@@ -107,13 +140,29 @@ def maintain_symlink_template(downloaded_database):
     downloaded_paths = get_all_exist_from_json(downloaded_database)
     with open(downloaded_database, 'r', encoding='utf-8') as f:
         d = json.load(f)
+    with open(updated_info, 'r', encoding='utf-8') as f:
+        updated_map = {_id: old_num for _id, old_num, _ in json.load(f)}
     for _id, info in d.items():
         if info is None or 'user' not in info:
             continue
-        create_symlinks(_id, info, downloaded_paths)
+        create_symlinks(_id, info, downloaded_paths, updated_map)
+
+
+def merge_updated_bookmark_num(downloaded_database):
+    with open(downloaded_database, 'r', encoding='utf-8') as f:
+        d = json.load(f)
+    with open(updated_info, 'r', encoding='utf-8') as f:
+        updated = json.load(f)
+    for _id, _, new_num in updated:
+        d[_id]['total_bookmarks'] = new_num
+    with open(downloaded_database, 'w', encoding='utf-8') as f:
+        json.dump(d, f, ensure_ascii=False, indent=True)
 
 
 if __name__ == '__main__':
+    # get_all_exist_from_dir()
+    # get_all_exist_from_json(dl_database)
+    # merge_updated_bookmark_num(dl_database)
     maintain_symlink_template(dl_database)
     # add_new_tags_of_bookmark_num()
     # remove_wrong_symlink()
