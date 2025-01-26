@@ -7,7 +7,7 @@ from secret import tmp_path
 
 base_url_pre = "https://i"
 base_url_suf = ".nhentai.net/galleries"
-servers = [3, 5, 7]
+servers = [1, 3, 5, 7]
 fmts = ['jpg', 'png', 'gif', 'webp']
 
 headers = {
