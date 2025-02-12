@@ -98,7 +98,7 @@ def create_symlinks(work_id, info, downloaded_paths, updated):
         index = 0
         while os.path.islink(p := os.path.join(path, dst_name + ('' if index == 0 else f'-{index}'))):
             if (os.path.isfile(downloaded_paths[work_id])
-                    or os.path.normcase(downloaded_paths[work_id]) in os.path.normcase(os.path.realpath(p))):
+                    or (os.path.exists(rp:= os.path.realpath(p)) and int(work_id) in get_pids(os.listdir(rp)))):
                 return
             index += 1
         os.symlink(downloaded_paths[work_id], p)
