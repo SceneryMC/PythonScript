@@ -1,10 +1,11 @@
 import bisect
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import shutil
 from typing import Optional
 from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY, get_rank_idx, get_target_name, \
-    get_rank_folders, dl_database, updated_info, get_ugoira_mp4_filename, get_pids
+    get_rank_folders, dl_database, updated_info, get_pids, can_uprank
 from secret import pd_path, pd_user_list, pd_symlink_path, pd_tags
 
 user_id_to_name = dict(pd_user_list)
@@ -97,7 +98,7 @@ def create_symlinks(work_id, info, downloaded_paths, updated):
         index = 0
         while os.path.islink(p := os.path.join(path, dst_name + ('' if index == 0 else f'-{index}'))):
             if (os.path.isfile(downloaded_paths[work_id])
-                    or os.path.normcase(downloaded_paths[work_id]) == os.path.normcase(os.path.realpath(p))):
+                    or os.path.normcase(downloaded_paths[work_id]) in os.path.normcase(os.path.realpath(p))):
                 return
             index += 1
         os.symlink(downloaded_paths[work_id], p)
@@ -159,10 +160,30 @@ def merge_updated_bookmark_num(downloaded_database):
         json.dump(d, f, ensure_ascii=False, indent=True)
 
 
+def uprank_old_close_works(downloaded_database):
+    curr = datetime.now(timezone(timedelta(hours=8)))
+    with open(downloaded_database, 'r', encoding='utf-8') as f:
+        d = json.load(f)
+    with open(updated_info, 'r', encoding='utf-8') as f:
+        updated = json.load(f)
+    for _id, info in d.items():
+        if (not (info is None or 'user' not in info)
+                and 'original_total_bookmarks' not in info and can_uprank(info['total_bookmarks'])
+                and curr - datetime.fromisoformat(info['create_date']) >= timedelta(seconds=86400 * 180)):
+            info['original_total_bookmarks'] = info['total_bookmarks']
+            info['total_bookmarks'] = rank[get_rank_idx(info['total_bookmarks']) + 1]
+            updated.append([_id, info['original_total_bookmarks'], info['total_bookmarks']])
+    with open(downloaded_database, 'w', encoding='utf-8') as f:
+        json.dump(d, f, ensure_ascii=False, indent=True)
+    with open(updated_info, 'w', encoding='utf-8') as f:
+        json.dump(updated, f, ensure_ascii=False, indent=True)
+
+
 if __name__ == '__main__':
     # get_all_exist_from_dir()
     # get_all_exist_from_json(dl_database)
-    # merge_updated_bookmark_num(dl_database)
+    # uprank_old_close_works(dl_database)
+    merge_updated_bookmark_num(dl_database)
     maintain_symlink_template(dl_database)
     # add_new_tags_of_bookmark_num()
     # remove_wrong_symlink()

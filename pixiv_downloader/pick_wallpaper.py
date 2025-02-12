@@ -8,6 +8,8 @@ from pixiv_downloader.utils import replace_filename
 from secret import pd_user_list, pd_wallpaper_dest, pd_processed_max
 
 processed = set(t[0] for t in pd_user_list[:pd_user_list.index((24230399, 'LBZ'))])
+pick = {'d': os.listdir(r'C:\Users\SceneryMC\Pictures'),
+        'm': set(os.listdir(r'F:\存储\其它\wallpaper\sp-single')) | set(os.listdir(r'F:\存储\其它\wallpaper\sp-multiple'))}
 
 
 def verify(_picked, _last, _id, info, downloaded_paths, func):
@@ -55,10 +57,9 @@ def pick_wallpaper(downloaded_database):
         d = json.load(f)
     with open(pd_processed_max, 'r', encoding='utf-8') as f:
         last = int(f.read())
-    picked = set(int(s.split('_')[0]) for s in os.listdir(r'C:\Users\SceneryMC\Pictures')
-                 if re.match(r'\d+_\w+\.\w+', s))
 
     func = input("模式？")
+    picked = set(int(s.split('_')[0]) for s in pick[func] if re.match(r'\d+_\w+\.\w+', s))
     for _id, info in d.items():
         if info is not None and 'user' in info:
             verify(picked, last, _id, info, downloaded_paths, func)

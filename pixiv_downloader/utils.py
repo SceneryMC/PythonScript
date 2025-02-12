@@ -28,6 +28,11 @@ def rank_update(orig, curr):
     return get_rank_idx(orig) != get_rank_idx(curr)
 
 
+def can_uprank(n):
+    CONST = 0.8
+    return rank[-1] > n >= CONST * rank[-1] or rank[-2] > n >= CONST * rank[-2]
+
+
 def get_pid(file_name):
     r = re.match(r'(\d+)(_\w+)?\.(\w+)', file_name)
     return int(r.group(1))
