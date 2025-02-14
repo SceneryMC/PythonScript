@@ -50,7 +50,7 @@ def get_all_bookmark_num_symlinks_from_dir():
 
 
 def test_duplicate_and_remove():
-    with open('../text_files/local_symlinks.txt', 'r') as f:
+    with open('local_symlinks.txt', 'r') as f:
         d = json.load(f)
     with open('../text_files/downloaded_info.json', 'r', encoding='utf-8') as f:
         info = json.load(f)
@@ -85,7 +85,7 @@ def test_duplicate_and_remove():
 
 
 def relink():
-    with open('../text_files/results.json', 'r') as f:
+    with open('results.json', 'r') as f:
         relink_list = json.load(f)
     for p1, p2 in relink_list:
         base = os.path.basename(p1)

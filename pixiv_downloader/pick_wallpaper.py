@@ -4,7 +4,7 @@ import re
 import shutil
 
 from pixiv_downloader.maintain_symlink import map_duplicate_tags_to_one, get_all_exist_from_json
-from pixiv_downloader.utils import replace_filename
+from pixiv_downloader.utils import get_folder_name
 from secret import pd_user_list, pd_wallpaper_dest, pd_processed_max
 
 processed = set(t[0] for t in pd_user_list[:pd_user_list.index((24230399, 'LBZ'))])
@@ -47,7 +47,7 @@ def verify(_picked, _last, _id, info, downloaded_paths, func):
             shutil.copy(downloaded_paths[_id], pd_wallpaper_dest)
         else:
             shutil.copytree(downloaded_paths[_id],
-                            os.path.join(str(pd_wallpaper_dest), replace_filename(info['title'])),
+                            os.path.join(str(pd_wallpaper_dest), get_folder_name(info)),
                             dirs_exist_ok=True)
 
 

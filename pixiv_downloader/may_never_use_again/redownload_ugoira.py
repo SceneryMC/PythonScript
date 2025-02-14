@@ -6,11 +6,11 @@ from pixivpy3.utils import JsonDict
 from pixiv_downloader.download_marked import get_ugoira_mp4_filename, path, convert_ugoira_frames, \
     get_ugoira_info, download_with_retry
 from pixiv_downloader.maintain_symlink import get_all_exist_from_json
-from pixiv_downloader.utils import BOOKMARK_ONLY, rank_name, rank, replace_filename
+from pixiv_downloader.utils import BOOKMARK_ONLY, get_folder_name
 from secret import pd_user_list, pd_path
 
 dl_database = '../text_files/downloaded_info.json'
-redownload_ls = '../text_files/redownload_ls.json'
+redownload_ls = 'redownload_ls.json'
 
 
 def split_record():
@@ -50,7 +50,7 @@ def download_works_in_list(ls, cur_path):
         info = json.load(f)
         count = 0
         for work in ls:
-            folder_name = replace_filename(work.title)
+            folder_name = get_folder_name(work)
             # 以download_with_retry为判断是否下载完成的方法，因为允许BOOKMARK重复下载作品
             if not os.path.exists(os.path.join(cur_path, p := get_ugoira_mp4_filename(work.id))):
                 print(cur_path, work.page_count, folder_name)
