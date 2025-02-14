@@ -141,8 +141,10 @@ def maintain_symlink_template(downloaded_database):
     downloaded_paths = get_all_exist_from_json(downloaded_database)
     with open(downloaded_database, 'r', encoding='utf-8') as f:
         d = json.load(f)
+    with open(os.path.join(os.path.dirname(downloaded_database), 'downloaded_info_new.json'), 'r', encoding='utf-8') as f:
+        new_d = json.load(f)
     with open(updated_info, 'r', encoding='utf-8') as f:
-        updated_map = {_id: old_num for _id, old_num, _ in json.load(f)}
+        updated_map = {_id: old_num for _id, old_num, new_num in json.load(f) if _id not in new_d and old_num < new_num}
     for _id, info in d.items():
         if info is None or 'user' not in info:
             continue
@@ -152,10 +154,16 @@ def maintain_symlink_template(downloaded_database):
 def merge_updated_bookmark_num(downloaded_database):
     with open(downloaded_database, 'r', encoding='utf-8') as f:
         d = json.load(f)
+    with open(os.path.join(os.path.dirname(downloaded_database), 'downloaded_info_new.json'), 'r', encoding='utf-8') as f:
+        new_d = json.load(f)
+    assert len(set(d.keys()) & set(new_d.keys())) == 0
     with open(updated_info, 'r', encoding='utf-8') as f:
         updated = json.load(f)
-    for _id, _, new_num in updated:
-        d[_id]['total_bookmarks'] = new_num
+
+    d.update(new_d)
+    for _id, old_num, new_num in updated:
+        if _id not in new_d and old_num < new_num:
+            d[_id]['total_bookmarks'] = new_num
     with open(downloaded_database, 'w', encoding='utf-8') as f:
         json.dump(d, f, ensure_ascii=False, indent=True)
 

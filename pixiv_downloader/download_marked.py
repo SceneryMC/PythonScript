@@ -5,12 +5,13 @@ import shutil
 import subprocess
 import time
 import zipfile
+from datetime import datetime, timezone, timedelta
 from functools import partial
 from pixivpy3 import *
 from path_cross_platform import path_fit_platform
 from pixiv_downloader.utils import get_file_pids, get_downloaded_works, BOOKMARK_ONLY, \
-    get_info_with_retry, replace_filename, get_ugoira_mp4_filename, get_name_from_url, test_zip, rank_update, \
-    get_rank_idx, dl_database, updated_info
+    get_info_with_retry, get_ugoira_mp4_filename, get_name_from_url, test_zip, rank_update, \
+    dl_database, updated_info, dl_database_new, get_folder_name
 from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid, pd_tags, pd_headers
 
 MAX_PAGE = 1000
@@ -127,33 +128,40 @@ def download_with_retry(file_url, path):
             os.remove(file)
 
 
-def download_marked(method, method_kwargs, root_dir=None, inc_download=True,
+def download_marked(method, method_kwargs, root_dir=None, inc_download=True, time_diff=86400 * 180,
                     criteria=lambda d, i: True):
     func = getattr(api, method)
     json_result = get_info_with_retry(func, **method_kwargs)
     cur_path = get_root_path(root_dir)
     downloaded_pids = get_downloaded_works(cur_path)
+    curr = datetime.now(timezone(timedelta(hours=8)))
+    with open(dl_database, 'r', encoding='utf-8') as f:
+        orig_info = json.load(f)
     for i in range(MAX_PAGE):
         ls = [d for d in json_result.illusts if criteria(d, i)]
-        download_works_in_list(ls, cur_path)
-        if json_result.next_url is None or \
-                (inc_download and len(downloaded_pids & get_file_pids(ls)) != 0):
+        download_works_in_list(ls, cur_path, orig_info)
+        has_downloaded_files = len(downloaded_pids & get_file_pids(ls)) != 0
+        if (json_result.next_url is None
+            or (inc_download and has_downloaded_files)
+            or (not inc_download and (not ls or curr - datetime.fromisoformat(ls[-1]['create_date']) >= timedelta(seconds=time_diff)))
+        ):
             break
         next = api.parse_qs(json_result.next_url)
         json_result = get_info_with_retry(func, **next)
 
 
-def download_works_in_list(ls, cur_path):
+def download_works_in_list(ls, cur_path, orig_info):
     updated = []
-    with open(dl_database, 'r+', encoding='utf-8') as f:
-        info = json.load(f)
+    with open(dl_database_new, 'r+', encoding='utf-8') as f:
+        new_info = json.load(f)
         count = 0
         for work in ls:
-            folder_name = replace_filename(work.title)
+            folder_name = get_folder_name(work)
             print(cur_path, work.page_count, folder_name)
 
             # 以download_with_retry为判断是否下载完成的方法，因为允许BOOKMARK重复下载作品；如果已存在但title不同，视作作者更改了title，跳过
-            if (_id := str(work.id)) not in info or info[_id]['title'] == work.title:
+            _id = str(work.id)
+            if (_id not in new_info or new_info[_id]['title'] == work.title) and (_id not in orig_info or orig_info[_id]['title'] == work.title):
                 if work.page_count > 1:  # 此时不可能为ugoira
                     tmp_path = os.path.join(cur_path, folder_name)
                     os.makedirs(tmp_path, exist_ok=True)
@@ -171,19 +179,21 @@ def download_works_in_list(ls, cur_path):
 
 
             # 将下载信息记入json文件
-            if _id not in info:
+            if _id not in new_info and _id not in orig_info:
                 del work['meta_pages'], work['meta_single_page'], work['image_urls']
-                info[_id] = work
-            elif rank_update(info[_id]['total_bookmarks'], work['total_bookmarks']):
-                updated.append((_id, info[_id]['total_bookmarks'], work['total_bookmarks']))
-                print(info[_id]['total_bookmarks'], work['total_bookmarks'])
-                count += 1
+                new_info[_id] = work
             else:
-                print(f"SKIPPED {_id}", info[_id]['total_bookmarks'], work['total_bookmarks'])
-                count += 1
+                bookmark_num = new_info[_id]['total_bookmarks'] if _id in new_info else orig_info[_id]['total_bookmarks']
+                if rank_update(bookmark_num, work['total_bookmarks']):
+                    updated.append((_id, bookmark_num, work['total_bookmarks']))
+                    print(bookmark_num, work['total_bookmarks'])
+                    count += 1
+                else:
+                    print(f"SKIPPED {_id}", bookmark_num, work['total_bookmarks'])
+                    count += 1
         if count != len(ls):
             f.seek(0)
-            json.dump(info, f, ensure_ascii=False, indent=True)
+            json.dump(new_info, f, ensure_ascii=False, indent=True)
     if updated:
         with open(updated_info, 'r', encoding='utf-8') as f:
             ls : list = json.load(f)
@@ -195,6 +205,9 @@ def download_works_in_list(ls, cur_path):
 def main():
     method = input("抓取：")
     inc = input('增量？') != 'False'
+    time_diff = 0x7ffffffff if inc else 86400 * 180
+    if time_diff_str := input('时限？'):
+        time_diff = eval(time_diff_str)
     if method == 'ul':
         start = input('从哪位作者开始？')
         for user_id, user_name in pd_user_list:
@@ -202,11 +215,11 @@ def main():
                 start = ''
             if start == '':
                 print(f'----------------{user_name}----------------')
-                download_marked('user_illusts', {'user_id': user_id}, user_name, inc,
+                download_marked('user_illusts', {'user_id': user_id}, user_name, inc, time_diff,
                                 partial(criteria_default,
                                         tags=set(elem for tags, cls in pd_tags for elem in tags)))
     elif method == 'b':
-        download_marked('user_bookmarks_illust', {'user_id': pd_pid}, BOOKMARK_ONLY, inc)
+        download_marked('user_bookmarks_illust', {'user_id': pd_pid}, BOOKMARK_ONLY, inc, time_diff, )
 
 
 if __name__ == '__main__':

@@ -9,12 +9,13 @@ MAX_ITER = 100
 
 def download_ul():
     inc = input('增量？')
+    time_diff_str = input('时限？')
     user = input('从哪位作者开始？')
     for i in range(MAX_ITER):
         print(f'----------------第{i + 1}次循环，从【{user}】继续下载！----------------')
         result = subprocess.run([rf'{os.path.abspath('..')}\venv\Scripts\python.exe', 'download_marked.py'],
                                 encoding='utf-8',
-                                input=f'ul\n{inc}\n{user if user != 'AUTO' else get_last_downloaded_user()}\n')
+                                input=f'ul\n{inc}\n{time_diff_str}\n{user if user != 'AUTO' else get_last_downloaded_user()}\n')
         if result.returncode == 0:
             break
         user = user_id_to_name[result.returncode]

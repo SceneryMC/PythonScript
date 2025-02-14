@@ -13,6 +13,7 @@ BOOKMARK_ONLY = '!BOOKMARK'
 rank = [0, 500, 1000, 2000, 5000, 10000]
 
 dl_database = 'text_files/downloaded_info.json'
+dl_database_new = 'text_files/downloaded_info_new.json'
 updated_info = 'text_files/updated_info.json'
 
 
@@ -65,8 +66,12 @@ def replace_filename(filename):
     return new_name
 
 
+def get_folder_name(info):
+    return f"{info['id']}-{replace_filename(info['title'])}"
+
+
 def get_target_name(info) -> str:
-    return replace_filename(info['title']) if info['page_count'] > 1 else info['filename']
+    return get_folder_name(info) if info['page_count'] > 1 else info['filename']
 
 
 def print_in_one_line(s):
