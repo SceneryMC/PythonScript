@@ -69,52 +69,32 @@ def map_duplicate_tags_to_one(given_tag) -> tuple[Optional[str], Optional[str]]:
 
 def create_symlinks(work_id, info, downloaded_paths, updated):
     def remove_old_num_symlink(path):
-        dst_name = get_target_name(info)
-        if os.path.isfile(downloaded_paths[work_id]):
-            fp = os.path.join(path, dst_name)
-            # os.remove(fp)
-            print(f"DELETED FILE: {fp}")
+        if os.path.islink(p := os.path.join(path, dst_name)):
+            os.remove(p)
+            print(f"DELETED SYMLINK: {p}")
         else:
-            index = 0
-            while os.path.islink(p := os.path.join(path, dst_name + ('' if index == 0 else f'-{index}'))):
-                try:
-                    pids = get_pids(os.listdir(p))
-                except:
-                    os.remove(p)
-                    print(f"REMOVED INVALID SYMLINK: {p}")
-                    break
-                if int(work_id) in pids:
-                    if len(pids) > 1:
-                        print(f"SKIP MORE THAN ONE: {p}")
-                    else:
-                        os.remove(p)
-                        print(f"DELETED FOLDER: {p}")
-                    break
-                index += 1
+            print(f"DELETE SYMLINK ERROR: {p}")
 
     def create_symlink_general(path):
         os.makedirs(path, exist_ok=True)
-        dst_name = get_target_name(info)
-        index = 0
-        while os.path.islink(p := os.path.join(path, dst_name + ('' if index == 0 else f'-{index}'))):
-            if (os.path.isfile(downloaded_paths[work_id])
-                    or (os.path.exists(rp:= os.path.realpath(p)) and int(work_id) in get_pids(os.listdir(rp)))):
-                return
-            index += 1
-        os.symlink(downloaded_paths[work_id], p)
-        print(f'CREATED: {downloaded_paths[work_id]} to {p}')
+        if not os.path.islink(p := os.path.join(path, dst_name)):
+            os.symlink(downloaded_paths[work_id], p)
+            print(f'CREATED: {downloaded_paths[work_id]} to {p}')
+        else:
+            print(f'ERROR: SYMLINK {p} EXISTS')
 
     def maintain_symlink_by_bookmark_num_and_type(base_path):
         if idx > 0:
             create_symlink_general(os.path.join(base_path, rank_name(idx)))
         if (old_idx := get_rank_idx(updated.get(work_id, 0))) > 0:
             remove_old_num_symlink(os.path.join(base_path, rank_name(old_idx)))
-        if get_target_name(info).endswith('.mp4'):
+        if dst_name.endswith('.mp4'):
             create_symlink_general(os.path.join(base_path, '!UGOIRA'))
 
     idx = get_rank_idx(info['total_bookmarks'])
     user_id = info['user']['id']
     results = set(map_duplicate_tags_to_one(tag['name']) for tag in info['tags'])
+    dst_name = get_target_name(info)
     for tag_projected, cls in results:
         if cls is not None:
             base = os.path.join(pd_symlink_path, cls, tag_projected)
