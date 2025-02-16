@@ -25,7 +25,7 @@ api.auth(refresh_token=pd_token)
 
 
 def criteria_default(d, i, tags: set):
-    tmp_result = (d['total_bookmarks'] >= min(300, i * 200) and not (d['type'] == 'ugoira' and d['total_bookmarks'] < 0))
+    tmp_result: bool = (d['total_bookmarks'] >= min(500, i * 250) *  (1 + int(d['illust_ai_type'] == 2)) and not (d['type'] == 'ugoira' and d['total_bookmarks'] < 0))
     if i < FULL_DOWNLOAD_PAGE_LIMIT or d['total_bookmarks'] >= 5000:
         return tmp_result
     return tmp_result and set(e['name'] for e in d['tags']) & tags
@@ -263,6 +263,8 @@ def main():
                         method_kwargs={'word': search_word},
                         root_dir=os.path.basename(pd_path), inc_download=inc, time_diff=time_diff,
                         main_func=get_work_info_only if info_only else download_works_in_list)
+    elif method == 'c':
+        pass
 
 
 if __name__ == '__main__':
