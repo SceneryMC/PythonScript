@@ -13,6 +13,7 @@ BOOKMARK_ONLY = '!BOOKMARK'
 rank = [0, 500, 1000, 2000, 5000, 10000]
 
 dl_database = 'text_files/downloaded_info.json'
+dl_tmp_new = 'text_files/new_tmp.txt'
 dl_database_new = 'text_files/downloaded_info_new.json'
 updated_info = 'text_files/updated_info.json'
 
@@ -129,9 +130,13 @@ def get_info_with_retry(f, keyword='illusts', *args, **kwargs):
             time.sleep(5)
         else:
             print('FAILED: EMPTY OR ERROR RESULT', args, kwargs)
-            _id = args[0] if args else int(kwargs.get('user_id', -1))
-            sys.exit(_id)
-            # {'error': {'user_message': '', 'message': 'Error occurred at the OAuth process. Please check your Access Token to fix this. Error Message: invalid_grant', 'reason': '', 'user_message_details': {}}}
+            if 'OAuth' in result['error']['message']:
+                _id = args[0] if args else int(kwargs.get('user_id', -1))
+                sys.exit(_id)
+                # {'error': {'user_message': '', 'message': 'Error occurred at the OAuth process. Please check your Access Token to fix this. Error Message: invalid_grant', 'reason': '', 'user_message_details': {}}}
+            else:
+                time.sleep(10)
+                # {'error': {'user_message': '', 'message': 'Rate Limit', ...}
     return result
 
 

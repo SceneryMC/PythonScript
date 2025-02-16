@@ -80,8 +80,6 @@ def create_symlinks(work_id, info, downloaded_paths, updated):
         if not os.path.islink(p := os.path.join(path, dst_name)):
             os.symlink(downloaded_paths[work_id], p)
             print(f'CREATED: {downloaded_paths[work_id]} to {p}')
-        else:
-            print(f'ERROR: SYMLINK {p} EXISTS')
 
     def maintain_symlink_by_bookmark_num_and_type(base_path):
         if idx > 0:
