@@ -5,10 +5,11 @@ from datetime import datetime, timezone, timedelta
 
 from pixiv_downloader.maintain_symlink import get_all_exist_from_json, map_duplicate_tags_to_one, user_id_to_name
 from pixiv_downloader.utils import get_rank_idx, get_target_name, BOOKMARK_ONLY, rank_name
-from secret import pd_symlink_path, pd_user_list
+from secret import pd_symlink_path, pd_user_list, pd_tags
 
 time_gap = 86400 * 180 * timedelta(seconds=1)
-min_limit = 500
+min_limit = 2500
+tags = set(elem for tags, cls in pd_tags for elem in tags)
 
 
 def remove_unlikely_to_view(work_id, info, downloaded_paths):
@@ -41,7 +42,7 @@ def remove_unlikely_to_view(work_id, info, downloaded_paths):
 def main():
     name_id_d = {name: _id for _id, name in pd_user_list}
     with open('../text_files/search_results/size.txt', 'r', encoding='utf-8') as f:
-        user_ls = [name_id_d[line.split(":")[0]] for line in f.readlines()[-100:-10]]
+        user_ls = [name_id_d[line.split(":")[0]] for line in f.readlines()]
 
     downloaded_paths = get_all_exist_from_json('../text_files/downloaded_info.json')
     curr = datetime.now(timezone(timedelta(hours=8)))
@@ -51,7 +52,7 @@ def main():
     ls = []
     for _id, info in d.items():
         if info is not None and 'user' in info and info['user']['id'] in user_ls and not info['is_bookmarked']:
-            if info['illust_ai_type'] == 2 and info['total_bookmarks'] < min_limit * min((curr - datetime.fromisoformat(info['create_date'])) / time_gap, 1):
+            if len(set(e['name'] for e in info['tags']) & tags) == 0 and info['total_bookmarks'] < min_limit * min((curr - datetime.fromisoformat(info['create_date'])) / time_gap, 1):
                 remove_unlikely_to_view(_id, info, downloaded_paths)
     #             ls.append(_id)
     # print(len(ls), ls)
@@ -85,11 +86,11 @@ def stat_size():
 
 
 if __name__ == '__main__':
-    main()
-    # with open('../text_files/downloaded_info.json', 'r', encoding='utf-8') as f:
-    #     d = json.load(f)
-    # for file in os.listdir(r'G:\下载\图片\新建文件夹'):
-    #     _id = file.split('-')[0].split('_')[0].split('.')[0]
-    #     del d[_id]
-    # with open('../text_files/downloaded_info.json', 'w', encoding='utf-8') as f:
-    #     json.dump(d, f, ensure_ascii=False, indent=True)
+    # main()
+    with open('../text_files/downloaded_info.json', 'r', encoding='utf-8') as f:
+        d = json.load(f)
+    for file in os.listdir(r'G:\下载\图片\新建文件夹'):
+        _id = file.split('-')[0].split('_')[0].split('.')[0]
+        del d[_id]
+    with open('../text_files/downloaded_info.json', 'w', encoding='utf-8') as f:
+        json.dump(d, f, ensure_ascii=False, indent=True)

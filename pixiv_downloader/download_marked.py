@@ -15,20 +15,25 @@ from pixiv_downloader.utils import get_file_pids, get_downloaded_works, BOOKMARK
 from secret import pd_path, pd_user_list, pd_token, proxies, pd_pid, pd_tags, pd_headers
 
 MAX_PAGE = 1000
-FULL_DOWNLOAD_PAGE_LIMIT = 6
+HALF_YEAR = timedelta(days=180)
+LEAST_BOOKMARK_NUM = 500
+FULL_DOWNLOAD_PAGE_LIMIT = 0
 FF_CONCAT = '!TMP.txt'
 FF_ARGS = '-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -profile:v baseline -pix_fmt yuv420p -an'
 
 path = path_fit_platform(pd_path)
 api = AppPixivAPI(proxies=proxies)
 api.auth(refresh_token=pd_token)
+start_time = datetime.now(timezone(timedelta(hours=8)))
+with open(dl_database, 'r', encoding='utf-8') as f:
+    original_info = json.load(f)
 
 
 def criteria_default(d, i, tags: set):
-    tmp_result: bool = (d['total_bookmarks'] >= min(500, i * 250) *  (1 + int(d['illust_ai_type'] == 2)) and not (d['type'] == 'ugoira' and d['total_bookmarks'] < 0))
-    if i < FULL_DOWNLOAD_PAGE_LIMIT or d['total_bookmarks'] >= 5000:
-        return tmp_result
-    return tmp_result and set(e['name'] for e in d['tags']) & tags
+    half_years = (start_time - datetime.fromisoformat(d['create_date'])) / HALF_YEAR
+    intermediate_bool: bool = d['total_bookmarks'] >= LEAST_BOOKMARK_NUM * (1 + int(d['illust_ai_type'] == 2) + 1.5 * int(d["type"] == "ugoira")) * min(half_years, 1)
+    return (d['total_bookmarks'] >= 2500 or d['is_bookmarked'] or
+            (intermediate_bool and (i < FULL_DOWNLOAD_PAGE_LIMIT or set(e['name'] for e in d['tags']) & tags)))
 
 
 def get_ugoira_info(ugoira_id):
@@ -216,19 +221,17 @@ def download_marked(method, method_kwargs, root_dir=None, inc_download=True, tim
     cur_path = get_root_path(root_dir)
     downloaded_pids = get_downloaded_works(cur_path)
     curr = datetime.now(timezone(timedelta(hours=8)))
-    with open(dl_database, 'r', encoding='utf-8') as f:
-        orig_info = json.load(f)
     for i in range(MAX_PAGE):
         ls = [d for d in json_result.illusts if criteria(d, i)]
-        main_func(ls, cur_path, orig_info)
+        main_func(ls, cur_path, original_info)
         has_downloaded_files = len(downloaded_pids & get_file_pids(ls)) != 0
         if (json_result.next_url is None
             or (inc_download and has_downloaded_files)
-            or (not inc_download and (not ls or curr - datetime.fromisoformat(ls[-1]['create_date']) >= timedelta(seconds=time_diff)))
+            or (not inc_download and (curr - datetime.fromisoformat(json_result.illusts[-1]['create_date']) >= timedelta(seconds=time_diff)))
         ):
             break
         next = api.parse_qs(json_result.next_url)
-        if int(next['offset']) > 5000:
+        if method == 'search_illust' and int(next['offset']) > 5000:
             next['offset'] = '0'
             next['end_date'] = ls[-1]['create_date'].split('T')[0]
         json_result = get_info_with_retry(func, **next)

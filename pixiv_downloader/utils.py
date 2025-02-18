@@ -27,7 +27,7 @@ def get_rank_idx(n):
 
 
 def rank_update(orig, curr):
-    return get_rank_idx(orig) != get_rank_idx(curr)
+    return get_rank_idx(orig) < get_rank_idx(curr)
 
 
 def can_uprank(n):
