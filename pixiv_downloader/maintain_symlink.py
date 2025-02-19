@@ -59,9 +59,9 @@ def get_all_exist_from_json(downloaded_database):
     return result
 
 
-def map_duplicate_tags_to_one(given_tag) -> tuple[Optional[str], Optional[str]]:
+def map_duplicate_tags_to_one(given_tag, target_tags=pd_tags) -> tuple[Optional[str], Optional[str]]:
     given_tag = given_tag.lower()
-    for tags, cls in pd_tags:
+    for tags, cls in target_tags:
         if any(given_tag.startswith(tag.lower()) for tag in tags):
             return tags[0], cls
     return None, None

@@ -93,15 +93,12 @@ def get_last_downloaded_user():
 
 def get_downloaded_works(root_path):
     result = set()
-    for root, folders, files in os.walk(root_path):
-        if os.path.basename(root) in get_rank_folders():
-            continue
-        if not folders and files:
-            result |= get_pids(files)
-        else:
-            for file in files:
-                if not file.startswith('limit_'):
-                    result.add(get_pid(file))
+    for item in os.listdir(root_path):
+        if item not in get_rank_folders():
+            if os.path.isdir(os.path.join(root_path, item)):
+                result.add(item.split('-')[0])
+            elif not item.startswith('limit_'):
+                result.add(get_pid(item))
     return result
     # return set(int(file.split('_')[0]) for files in (x for _, _, x in os.walk(root_path)) for file in files)
 

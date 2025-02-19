@@ -5,14 +5,23 @@ import shutil
 
 from pixiv_downloader.maintain_symlink import map_duplicate_tags_to_one, get_all_exist_from_json
 from pixiv_downloader.utils import get_folder_name
-from secret import pd_user_list, pd_wallpaper_dest, pd_processed_max
+from secret import pd_user_list, pd_wallpaper_dest, pd_processed_max, pd_tags
 
-processed = set(t[0] for t in pd_user_list[:pd_user_list.index((24230399, 'LBZ'))])
 pick = {'d': os.listdir(r'C:\Users\SceneryMC\Pictures'),
         'm': set(os.listdir(r'F:\存储\其它\wallpaper\sp-single')) | set(os.listdir(r'F:\存储\其它\wallpaper\sp-multiple'))}
 
 
-def verify(_picked, _last, _id, info, downloaded_paths, func):
+def get_processed(picked, d):
+    user_ls = [user_id for user_id, _ in pd_user_list]
+    max_item = 0
+    for work in picked:
+        _id = str(work)
+        if _id in d and d[_id]['user']['id'] in user_ls:
+            max_item = max(max_item, user_ls.index(d[_id]['user']['id']))
+    return max_item + 1
+
+
+def verify(processed, _picked, _last, _id, info, downloaded_paths, func):
     _tags = set(tag['name'] for tag in info['tags'])
 
     def desktop():
@@ -24,7 +33,8 @@ def verify(_picked, _last, _id, info, downloaded_paths, func):
                          and info['total_bookmarks'] >= 1000)
                      )
                 and 'R-18' not in _tags
-                and any(map_duplicate_tags_to_one(tag['name'])[1] == 'CHARACTER' for tag in info['tags'])
+                and info["type"] != "ugoira"
+                and any(map_duplicate_tags_to_one(tag['name'], target_tags=pd_tags[:28])[0] is not None for tag in info['tags'])
                 and info['width'] > info['height'] * 1.1)
 
 
@@ -37,7 +47,8 @@ def verify(_picked, _last, _id, info, downloaded_paths, func):
                          and info['total_bookmarks'] >= 1000)
                      )
                 and 'R-18' not in _tags
-                and any(map_duplicate_tags_to_one(tag['name'])[1] == 'CHARACTER' for tag in info['tags'])
+                and info["type"] != "ugoira"
+                and any(map_duplicate_tags_to_one(tag['name'], target_tags=pd_tags[:28])[0] is not None for tag in info['tags'])
                 and info['height'] > info['width'] * 1.1)
 
 
@@ -60,9 +71,10 @@ def pick_wallpaper(downloaded_database):
 
     func = input("模式？")
     picked = set(int(s.split('_')[0]) for s in pick[func] if re.match(r'\d+_\w+\.\w+', s))
+    processed = pd_user_list[:get_processed(picked, d)]
     for _id, info in d.items():
         if info is not None and 'user' in info:
-            verify(picked, last, _id, info, downloaded_paths, func)
+            verify(processed, picked, last, _id, info, downloaded_paths, func)
 
     with open(pd_processed_max, 'w', encoding='utf-8') as f:
         f.write(str(max(v['id'] for v in d.values() if v is not None and 'user' in v and v['user']['id'] in processed)))

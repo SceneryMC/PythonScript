@@ -18,6 +18,7 @@ MAX_PAGE = 1000
 HALF_YEAR = timedelta(days=180)
 LEAST_BOOKMARK_NUM = 500
 FULL_DOWNLOAD_PAGE_LIMIT = 0
+NO_TAG_LIMIT = 4000
 FF_CONCAT = '!TMP.txt'
 FF_ARGS = '-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -profile:v baseline -pix_fmt yuv420p -an'
 
@@ -32,7 +33,7 @@ with open(dl_database, 'r', encoding='utf-8') as f:
 def criteria_default(d, i, tags: set):
     half_years = (start_time - datetime.fromisoformat(d['create_date'])) / HALF_YEAR
     intermediate_bool: bool = d['total_bookmarks'] >= LEAST_BOOKMARK_NUM * (1 + int(d['illust_ai_type'] == 2) + 1.5 * int(d["type"] == "ugoira")) * min(half_years, 1)
-    return (d['total_bookmarks'] >= 2500 or d['is_bookmarked'] or
+    return (d['total_bookmarks'] >= NO_TAG_LIMIT or d['is_bookmarked'] or
             (intermediate_bool and (i < FULL_DOWNLOAD_PAGE_LIMIT or set(e['name'] for e in d['tags']) & tags)))
 
 
