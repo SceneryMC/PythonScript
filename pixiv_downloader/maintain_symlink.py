@@ -155,7 +155,7 @@ def uprank_old_close_works(downloaded_database):
     for _id, info in d.items():
         if (not (info is None or 'user' not in info)
                 and 'original_total_bookmarks' not in info and can_uprank(info['total_bookmarks'])
-                and curr - datetime.fromisoformat(info['create_date']) >= timedelta(seconds=86400 * 180)):
+                and curr - datetime.fromisoformat(info['create_date']) >= timedelta(seconds=86400 * 90)):
             info['original_total_bookmarks'] = info['total_bookmarks']
             info['total_bookmarks'] = rank[get_rank_idx(info['total_bookmarks']) + 1]
             updated.append([_id, info['original_total_bookmarks'], info['total_bookmarks']])

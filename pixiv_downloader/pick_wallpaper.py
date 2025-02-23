@@ -4,7 +4,7 @@ import re
 import shutil
 
 from pixiv_downloader.maintain_symlink import map_duplicate_tags_to_one, get_all_exist_from_json
-from pixiv_downloader.utils import get_folder_name
+from pixiv_downloader.utils import get_folder_name, get_target_name
 from secret import pd_user_list, pd_wallpaper_dest, pd_processed_max, pd_tags
 
 pick = {'d': os.listdir(r'C:\Users\SceneryMC\Pictures'),
@@ -54,12 +54,14 @@ def verify(processed, _picked, _last, _id, info, downloaded_paths, func):
 
     func_map = {'d': desktop, 'm': mobile}
     if func_map[func]():
-        if info['page_count'] == 1:
-            shutil.copy(downloaded_paths[_id], pd_wallpaper_dest)
+        dest = os.path.join(pd_wallpaper_dest, get_target_name(info))
+        if not os.path.exists(dest):
+            if info['page_count'] == 1:
+                shutil.copy(downloaded_paths[_id], dest)
+            else:
+                shutil.copytree(downloaded_paths[_id], dest)
         else:
-            shutil.copytree(downloaded_paths[_id],
-                            os.path.join(str(pd_wallpaper_dest), get_folder_name(info)),
-                            dirs_exist_ok=True)
+            print(f"UNLIKELY: {dest}")
 
 
 def pick_wallpaper(downloaded_database):

@@ -37,7 +37,7 @@ def merge_txt_to_json(path):
 def get_info_s():
     inc = input('增量？')
     time_diff_str = input('时限？')
-    for tags, _type in pd_tags[8:]:
+    for tags, _type in pd_tags:
         if _type == 'CHARACTER':
             with open(updated_info, 'w', encoding='utf-8') as f:
                 json.dump([], f, ensure_ascii=False, indent=True)
@@ -55,5 +55,5 @@ def get_info_s():
 
 
 if __name__ == '__main__':
-    # download_ul()
-    get_info_s()
+    download_ul()
+    # get_info_s()
