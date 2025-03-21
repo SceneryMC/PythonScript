@@ -4,7 +4,7 @@ import re
 import shutil
 
 from pixiv_downloader.maintain_symlink import map_duplicate_tags_to_one, get_all_exist_from_json
-from pixiv_downloader.utils import get_folder_name, get_target_name
+from pixiv_downloader.utils import get_target_name
 from secret import pd_user_list, pd_wallpaper_dest, pd_processed_max, pd_tags
 
 pick = {'d': os.listdir(r'C:\Users\SceneryMC\Pictures'),
@@ -16,7 +16,7 @@ def get_processed(picked, d):
     max_item = 0
     for work in picked:
         _id = str(work)
-        if _id in d and d[_id]['user']['id'] in user_ls:
+        if _id in d and d[_id]['user']['id'] in user_ls and not d[_id]['is_bookmarked']:
             max_item = max(max_item, user_ls.index(d[_id]['user']['id']))
     return max_item + 1
 
@@ -69,17 +69,20 @@ def pick_wallpaper(downloaded_database):
     with open(downloaded_database, 'r', encoding='utf-8') as f:
         d = json.load(f)
     with open(pd_processed_max, 'r', encoding='utf-8') as f:
-        last = int(f.read())
+        last = json.load(f)
 
     func = input("模式？")
     picked = set(int(s.split('_')[0]) for s in pick[func] if re.match(r'\d+_\w+\.\w+', s))
-    processed = pd_user_list[:get_processed(picked, d)]
+    curr_id = get_processed(picked, d)
+    print(curr_id)
+    processed = set(_id for _id, _ in pd_user_list[:curr_id])
     for _id, info in d.items():
         if info is not None and 'user' in info:
-            verify(processed, picked, last, _id, info, downloaded_paths, func)
+            verify(processed, picked, last[func], _id, info, downloaded_paths, func)
 
     with open(pd_processed_max, 'w', encoding='utf-8') as f:
-        f.write(str(max(v['id'] for v in d.values() if v is not None and 'user' in v and v['user']['id'] in processed)))
+        last[func] = str(max(v['id'] for v in d.values() if v is not None and 'user' in v))
+        json.dump(last, f)
 
 
 if __name__ == '__main__':

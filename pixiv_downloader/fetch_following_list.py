@@ -12,6 +12,8 @@ def fetch_following_list():
         if json_result.next_url is None:
             break
         next = api.parse_qs(json_result.next_url)
+        if 'offset' in next and int(next['offset']) > 5000:
+            break
         json_result = get_info_with_retry(api.user_following, keyword='user_previews', **next)
     return users
 
