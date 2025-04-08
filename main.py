@@ -2,6 +2,9 @@ import argparse
 import json
 import os.path
 import pickle
+import re
+import shutil
+import time
 import zipfile
 from collections import defaultdict
 from math import sqrt
@@ -10,7 +13,10 @@ import fitz
 import freeplane
 import lxml.etree
 import yaml
+from pixivpy3 import AppPixivAPI
 from sympy import factor
+
+from secret import proxies, pd_token
 
 # new_lines = []
 # with open(r"C:\Users\SceneryMC\Source\Repos\assembly\first_window.asm") as f:
@@ -287,4 +293,25 @@ from sympy import factor
 
 # with zipfile.ZipFile('./pixiv_downloader/117194428_ugoira1920x1080.zip', 'r') as zip_ref:
 #     zip_ref.extractall('./pixiv_downloader/unzipped')
+# tmp = os.listdir(r'F:\存储\其它\wallpaper')
+# src2 = set(os.listdir(r'F:\存储\其它\wallpaper\misc\mobile'))
+# src3 = set(os.listdir(r'C:\Users\SceneryMC\Pictures'))
+#
+# for image in tmp:
+#     if image in src2 or image in src3:
+#         shutil.move(os.path.join(r'F:\存储\其它\wallpaper', image), r'F:\存储\其它\wallpaper\picked')
+# import csv
+# import shutil
+#
+# with open(r'F:\存储\其它\wallpaper\456.csv', newline='\n', encoding='utf-8') as csvfile:
+#     spamreader = csv.reader(csvfile, delimiter=',', quotechar='|')
+#     for row in spamreader:
+#         if row[15].startswith('F'):
+#             shutil.copy(os.path.join(row[15], row[0]), r'E:\共享\dst')
+#             print(row[0], row[15])
 
+
+api = AppPixivAPI(proxies=proxies)
+api.auth(refresh_token=pd_token)
+r = api.ugoira_metadata(94125339)
+print(r)

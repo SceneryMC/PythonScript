@@ -40,21 +40,21 @@ def criteria_default(d, i, tags: set):
 def get_ugoira_info(ugoira_id):
     while True:
         try:
-            result = api.requests_call('GET', f'https://www.pixiv.net/ajax/illust/{ugoira_id}/ugoira_meta',
-                                       headers=pd_headers)
-            j = api.parse_result(result)
-            if j and not j['error']:
-                return j['body']
+            j = api.ugoira_metadata(int(ugoira_id))
+            # result = api.requests_call('GET', f'https://www.pixiv.net/ajax/illust/{ugoira_id}/ugoira_meta',
+            #                            headers=auth_header)
+            if j and ('error' not in j or not j['error']):
+                return j['ugoira_metadata']['zip_urls']['medium'].replace('600x600', '1920x1080'), j['ugoira_metadata']['frames']
         except Exception as e:
             print('NETWORK ERROR:', e)
             time.sleep(5)
         else:
-            print('UNEXPECTED ERROR:', j['error'])
+            print('UNEXPECTED ERROR:', ugoira_id, j)
             time.sleep(120)
 
 
-def convert_ugoira_frames(zip_dirpath: str, ugoira_info, interpolate=False):
-    zip_filename = get_name_from_url(ugoira_info['originalSrc'])
+def convert_ugoira_frames(zip_dirpath: str, ugoira_url, frames, interpolate=False):
+    zip_filename = get_name_from_url(ugoira_url)
     zip_file = os.path.join(zip_dirpath, zip_filename)
     work_id = zip_filename.split('_')[0]
     zip_extract_folder = os.path.join(zip_dirpath, work_id)
@@ -63,7 +63,7 @@ def convert_ugoira_frames(zip_dirpath: str, ugoira_info, interpolate=False):
         zip_ref.extractall(zip_extract_folder)
     with open(os.path.join(zip_extract_folder, FF_CONCAT), 'w') as f:
         f.write('ffconcat version 1.0\n\n')
-        ugoira_frames = ugoira_info['frames'].copy()
+        ugoira_frames = frames.copy()
         last_frame = ugoira_frames[-1].copy()
         last_frame['delay'] = 1
         ugoira_frames.append(last_frame)
@@ -203,9 +203,9 @@ def download_works_in_list(ls, cur_path, orig_info):
                 else:
                     work['filename'] = get_ugoira_mp4_filename(work.id)
                     if not os.path.exists(os.path.join(cur_path, work['filename'])):
-                        ugoira_info = get_ugoira_info(work.id)
-                        download_with_retry(ugoira_info['originalSrc'], cur_path)
-                        assert convert_ugoira_frames(cur_path, ugoira_info) == 0
+                        ugoira_url, frames = get_ugoira_info(work.id)
+                        download_with_retry(ugoira_url, cur_path)
+                        assert convert_ugoira_frames(cur_path, ugoira_url, frames) == 0
 
             # 将下载信息记入json文件
             count += write_new_work_info(_id, work, updated, new_info, orig_info)

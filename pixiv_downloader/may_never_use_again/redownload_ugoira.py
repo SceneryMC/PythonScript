@@ -54,9 +54,9 @@ def download_works_in_list(ls, cur_path):
             # 以download_with_retry为判断是否下载完成的方法，因为允许BOOKMARK重复下载作品
             if not os.path.exists(os.path.join(cur_path, p := get_ugoira_mp4_filename(work.id))):
                 print(cur_path, work.page_count, folder_name)
-                ugoira_info = get_ugoira_info(work.id)
-                download_with_retry(ugoira_info['originalSrc'], cur_path)
-                convert_ugoira_frames(cur_path, ugoira_info)
+                url, frames = get_ugoira_info(work.id)
+                download_with_retry(url, cur_path)
+                convert_ugoira_frames(cur_path, url, frames)
                 work['filename'] = p
             # 将下载信息记入json文件
             if (_id := str(work.id)) not in info:

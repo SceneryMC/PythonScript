@@ -2,13 +2,15 @@ import json
 import os
 import re
 import shutil
+from collections import defaultdict
 
 from pixiv_downloader.maintain_symlink import map_duplicate_tags_to_one, get_all_exist_from_json
 from pixiv_downloader.utils import get_target_name
 from secret import pd_user_list, pd_wallpaper_dest, pd_processed_max, pd_tags
 
 pick = {'d': os.listdir(r'C:\Users\SceneryMC\Pictures'),
-        'm': set(os.listdir(r'F:\存储\其它\wallpaper\sp-single')) | set(os.listdir(r'F:\存储\其它\wallpaper\sp-multiple'))}
+        'm': set(os.listdir(r'F:\存储\其它\wallpaper\sp-single')) | set(os.listdir(r'F:\存储\其它\wallpaper\sp-multiple')),
+        'o': [],}
 
 
 def get_processed(picked, d):
@@ -18,23 +20,23 @@ def get_processed(picked, d):
         _id = str(work)
         if _id in d and d[_id]['user']['id'] in user_ls and not d[_id]['is_bookmarked']:
             max_item = max(max_item, user_ls.index(d[_id]['user']['id']))
-    return max_item + 1
+    return max_item + 1 if picked else 0
 
 
 def verify(processed, _picked, _last, _id, info, downloaded_paths, func):
-    _tags = set(tag['name'] for tag in info['tags'])
+    _tags = set(tag for tag in info['tags'])
 
     def desktop():
         return (info['id'] not in _picked
                 and not (info['user']['id'] in processed and info['id'] < _last)
                 and (info['total_bookmarks'] >= 5000
-                     or (any(map_duplicate_tags_to_one(tag['name'])[0] in ['Collei', 'Layla', 'Xiangling'] for tag in
-                             info['tags'])
+                     or (any(map_duplicate_tags_to_one(tag)[0] in ['Collei', 'Layla', 'Xiangling'] for tag in
+                             _tags)
                          and info['total_bookmarks'] >= 1000)
                      )
                 and 'R-18' not in _tags
                 and info["type"] != "ugoira"
-                and any(map_duplicate_tags_to_one(tag['name'], target_tags=pd_tags[:28])[0] is not None for tag in info['tags'])
+                and any(map_duplicate_tags_to_one(tag, target_tags=pd_tags[:28])[0] is not None for tag in _tags)
                 and info['width'] > info['height'] * 1.1)
 
 
@@ -42,17 +44,24 @@ def verify(processed, _picked, _last, _id, info, downloaded_paths, func):
         return (info['id'] not in _picked
                 and not (info['user']['id'] in processed and info['id'] < _last)
                 and (info['total_bookmarks'] >= 5000
-                     or (any(map_duplicate_tags_to_one(tag['name'])[0] in ['Collei', 'Layla', 'Xiangling'] for tag in
-                             info['tags'])
+                     or (any(map_duplicate_tags_to_one(tag)[0] in ['Collei', 'Layla', 'Xiangling'] for tag in
+                             _tags)
                          and info['total_bookmarks'] >= 1000)
                      )
                 and 'R-18' not in _tags
                 and info["type"] != "ugoira"
-                and any(map_duplicate_tags_to_one(tag['name'], target_tags=pd_tags[:28])[0] is not None for tag in info['tags'])
+                and any(map_duplicate_tags_to_one(tag, target_tags=pd_tags[:28])[0] is not None for tag in _tags)
                 and info['height'] > info['width'] * 1.1)
 
+    def one_character():
+        return (info['total_bookmarks'] >= 5000
+                and 'R-18' not in _tags
+                and info["type"] != "ugoira"
+                and any(map_duplicate_tags_to_one(tag, target_tags=[pd_tags[4]])[0] is not None for tag in _tags)
+                )
 
-    func_map = {'d': desktop, 'm': mobile}
+
+    func_map = {'d': desktop, 'm': mobile, 'o': one_character}
     if func_map[func]():
         dest = os.path.join(pd_wallpaper_dest, get_target_name(info))
         if not os.path.exists(dest):
