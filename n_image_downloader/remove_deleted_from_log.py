@@ -24,7 +24,7 @@ for w in s_diff:
     try:
         del j[w]
     except:
-        print(f"FAILED {w}")
+        print(f"skipped {w}")
 with open(last_log, 'w') as f:
     json.dump(j, f, ensure_ascii=False, indent=True)
 
@@ -34,6 +34,6 @@ for w in s_diff:
     try:
         del database[w]
     except:
-        print(f"PICKLE FAILED {w}")
+        print(f"PICKLE FAILED {w}, THIS SHOULD NOT HAPPEN")
 with open(database_path, "wb") as f:
     pickle.dump(database, f)

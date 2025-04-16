@@ -65,8 +65,8 @@ def tmp_get_image(i, serial, folder, address_tmp):
                 try:
                     r_sub = requests.get(f"{folder}/{i}.{fmt}", verify=False, headers=headers)
                     break
-                except:
-                    print(f"图片{i}出现一次下载错误！重试中……")
+                except Exception as e:
+                    print(f"图片{i}出现一次下载错误！{e}")
                     time.sleep(5)
             with open(rf"{address_tmp}\{i}.{fmt}", 'wb') as f:
                 f.write(r_sub.content)
