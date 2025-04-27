@@ -49,7 +49,7 @@ def get_ugoira_info(ugoira_id):
             print('NETWORK ERROR:', e)
             time.sleep(5)
         else:
-            print('UNEXPECTED ERROR:', ugoira_id, j)
+            print('UNEXPECTED ERROR:', ugoira_id, j) ## 待补充
             time.sleep(120)
 
 
