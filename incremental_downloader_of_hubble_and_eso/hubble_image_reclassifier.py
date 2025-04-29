@@ -1,8 +1,8 @@
 import os
 import shutil
-from secret import idohae_hubble
+from secret import idohae_hubble_path
 
-path = idohae_hubble
+path = idohae_hubble_path
 folders = ["heic", "potw", "opo", "sci", "ann", "others"]
 images = os.listdir(path)
 for folder in folders:

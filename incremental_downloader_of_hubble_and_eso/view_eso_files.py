@@ -1,6 +1,6 @@
 import os
 from incremental_downloader_of_hubble_and_eso import eso_attributes, get_image_urls, get_total
-from secret import idohae_root_path
+from secret import idohae_eso_path
 
 
 def name_unify(s):
@@ -12,7 +12,7 @@ ls_local = []
 ls_skipped = []
 ls_processed = []
 ls_refetch = []
-for root, folders, files in os.walk(idohae_root_path):
+for root, folders, files in os.walk(idohae_eso_path):
     for file in files:
         file = file.split('.')[0]
         file = name_unify(file)
