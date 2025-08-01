@@ -3,6 +3,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import time
 import zipfile
 from datetime import datetime, timezone, timedelta
@@ -37,7 +38,7 @@ def criteria_default(d, i, tags: set):
             (intermediate_bool and (i < FULL_DOWNLOAD_PAGE_LIMIT or set(e['name'] for e in d['tags']) & tags)))
 
 
-def get_ugoira_info(ugoira_id):
+def get_ugoira_info(ugoira_id, user_id):
     while True:
         try:
             j = api.ugoira_metadata(int(ugoira_id))
@@ -50,7 +51,7 @@ def get_ugoira_info(ugoira_id):
             time.sleep(5)
         else:
             print('UNEXPECTED ERROR:', ugoira_id, j) ## 待补充
-            time.sleep(120)
+            sys.exit(user_id)
 
 
 def convert_ugoira_frames(zip_dirpath: str, ugoira_url, frames, interpolate=False):
@@ -203,7 +204,7 @@ def download_works_in_list(ls, cur_path, orig_info):
                 else:
                     work['filename'] = get_ugoira_mp4_filename(work.id)
                     if not os.path.exists(os.path.join(cur_path, work['filename'])):
-                        ugoira_url, frames = get_ugoira_info(work.id)
+                        ugoira_url, frames = get_ugoira_info(work.id, work.user.id)
                         download_with_retry(ugoira_url, cur_path)
                         assert convert_ugoira_frames(cur_path, ugoira_url, frames) == 0
 

@@ -22,7 +22,8 @@ def path_Windows_to_Linux(path):
 
 def path_Linux_to_Windows(path):
     path_ls = path.split('/')
-    return f"{path_ls[2]}:\\" + '\\'.join(path_ls[3:])
+    disk_idx = 2 if path_ls[1] == 'mnt' else 1
+    return f"{path_ls[disk_idx]}:\\" + '\\'.join(path_ls[disk_idx+1:])
 
 
 def platform_not_match(path):

@@ -5,7 +5,7 @@ import os
 import shutil
 from typing import Optional
 from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY, get_rank_idx, get_target_name, \
-    get_rank_folders, dl_database, updated_info, get_pids, can_uprank
+    get_rank_folders, dl_database, updated_info, get_pids, can_uprank, map_duplicate_tags_to_one
 from secret import pd_path, pd_user_list, pd_symlink_path, pd_tags
 
 user_id_to_name = dict(pd_user_list)
@@ -57,14 +57,6 @@ def get_all_exist_from_json(downloaded_database):
                                    user_or_bookmark,
                                    target_name)
     return result
-
-
-def map_duplicate_tags_to_one(given_tag, target_tags=pd_tags) -> tuple[Optional[str], Optional[str]]:
-    given_tag = given_tag.lower()
-    for tags, cls in target_tags:
-        if any(given_tag.startswith(tag.lower()) for tag in tags):
-            return tags[0], cls
-    return None, None
 
 
 def create_symlinks(work_id, info, downloaded_paths, updated):
@@ -159,8 +151,6 @@ def uprank_old_close_works(downloaded_database):
             info['original_total_bookmarks'] = info['total_bookmarks']
             info['total_bookmarks'] = rank[get_rank_idx(info['total_bookmarks']) + 1]
             updated.append([_id, info['original_total_bookmarks'], info['total_bookmarks']])
-    with open(downloaded_database, 'w', encoding='utf-8') as f:
-        json.dump(d, f, ensure_ascii=False, indent=True)
     with open(updated_info, 'w', encoding='utf-8') as f:
         json.dump(updated, f, ensure_ascii=False, indent=True)
 

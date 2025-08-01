@@ -7,12 +7,12 @@ from secret import pd_pid
 def fetch_following_list():
     users = []
     json_result = get_info_with_retry(api.user_following, keyword='user_previews', user_id=pd_pid, restrict="private")
-    while True:
+    while len(users) < 500:
         users.extend((d.user.id, replace_filename(d.user.name)) for d in json_result.user_previews)
         if json_result.next_url is None:
             break
         next = api.parse_qs(json_result.next_url)
-        if 'offset' in next and int(next['offset']) > 5000:
+        if 'offset' in next and int(next['offset']) > 500:
             break
         json_result = get_info_with_retry(api.user_following, keyword='user_previews', **next)
     return users

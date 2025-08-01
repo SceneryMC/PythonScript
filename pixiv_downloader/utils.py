@@ -4,9 +4,10 @@ import re
 import sys
 import time
 import zipfile
+from typing import Optional
 
 from pathvalidate import sanitize_filename
-from secret import pd_user_list, pd_path
+from secret import pd_user_list, pd_path, pd_tags
 
 MAX_STR_LEN = 1000
 BOOKMARK_ONLY = '!BOOKMARK'
@@ -16,6 +17,14 @@ dl_database = 'text_files/downloaded_info.json'
 dl_tmp_new = 'text_files/new_tmp.txt'
 dl_database_new = 'text_files/downloaded_info_new.json'
 updated_info = 'text_files/updated_info.json'
+
+
+def map_duplicate_tags_to_one(given_tag, target_tags=pd_tags) -> tuple[Optional[str], Optional[str]]:
+    given_tag = given_tag.lower()
+    for tags, cls in target_tags:
+        if any(given_tag.startswith(tag.lower()) for tag in tags):
+            return tags[0], cls
+    return None, None
 
 
 def rank_name(idx):
