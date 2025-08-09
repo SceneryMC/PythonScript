@@ -46,7 +46,7 @@ def can_uprank(n):
 
 def get_pid(file_name):
     r = re.match(r'(\d+)(_\w+)?\.(\w+)', file_name)
-    return int(r.group(1))
+    return int(r.group(1)) if r is not None else None
 
 
 def get_pids(ls):

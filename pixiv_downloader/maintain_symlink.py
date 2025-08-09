@@ -3,12 +3,12 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 import shutil
-from typing import Optional
 from pixiv_downloader.utils import get_pid, rank, rank_name, BOOKMARK_ONLY, get_rank_idx, get_target_name, \
     get_rank_folders, dl_database, updated_info, get_pids, can_uprank, map_duplicate_tags_to_one
 from secret import pd_path, pd_user_list, pd_symlink_path, pd_tags
 
 user_id_to_name = dict(pd_user_list)
+SPECIAL_NAMES = {'!UGOIRA', 'limit_mypixiv_360.png', 'limit_sanity_level_360.png', 'limit_unknown_360.png', 'limit_unviewable_360.png'}
 
 
 def remove_wrong_symlink():
@@ -30,11 +30,9 @@ def get_all_exist_from_dir():
     result = {}
     root = os.path.dirname(pd_path)
     for user in os.listdir(root):
-        if user == 'Hood':
-            continue
         user_path = os.path.join(root, user)
         for item in os.listdir(user_path):
-            if item not in get_rank_folders() and item not in {'!UGOIRA', 'limit_mypixiv_360.png', 'limit_sanity_level_360.png', 'limit_unknown_360.png'}:
+            if item not in get_rank_folders() and item not in SPECIAL_NAMES:
                 if os.path.isdir(item_path := os.path.join(user_path, item)):
                     for work_id in get_pids(os.listdir(item_path)):
                         test_duplicate_and_assign(work_id, item_path)
@@ -59,27 +57,92 @@ def get_all_exist_from_json(downloaded_database):
     return result
 
 
-def create_symlinks(work_id, info, downloaded_paths, updated):
-    def remove_old_num_symlink(path):
-        if os.path.islink(p := os.path.join(path, dst_name)):
-            os.remove(p)
-            print(f"DELETED SYMLINK: {p}")
-        else:
-            print(f"DELETE SYMLINK ERROR: {p}")
+def create_links(work_id, info, downloaded_paths, updated):
+    def remove_old_link(path):
+        """
+        删除一个旧的链接。
+        如果它是一个文件（硬链接），则删除文件。
+        如果它是一个目录（包含硬链接的目录），则递归删除整个目录。
+        """
+        # 构造完整路径
+        p = os.path.join(path, dst_name)
 
-    def create_symlink_general(path):
+        # 使用 lexists 检查路径是否存在，避免在不存在时报错
+        if not os.path.lexists(p):
+            # 如果路径不存在，可能已经被处理过了，直接返回
+            # print(f"路径 '{p}' 不存在，无需删除。")
+            return
+
+        try:
+            if os.path.isdir(p) and not os.path.islink(p):
+                # 如果是一个真实的目录
+                shutil.rmtree(p)
+                print(f"DELETED DIRECTORY: {p}")
+            elif os.path.isfile(p) and not os.path.islink(p):
+                # 如果是一个真实的文件（硬链接会被识别为文件）
+                os.remove(p)
+                print(f"DELETED HARDLINK: {p}")
+            # else:
+            # 如果是其他情况（例如，意外的软链接），也可以选择处理或忽略
+            # print(f"路径 '{p}' 不是预期的文件或目录，跳过删除。")
+        except OSError as e:
+            print(f"删除 '{p}' 时出错: {e}")
+
+    def create_new_link(path):
+        """
+        在一个指定路径下，为新文件/文件夹创建链接。
+        - 如果是单页作品，创建硬链接。
+        - 如果是多页作品，创建一个新目录，并在其中为所有源文件创建硬链接。
+        """
         os.makedirs(path, exist_ok=True)
-        if not os.path.islink(p := os.path.join(path, dst_name)):
-            os.symlink(downloaded_paths[work_id], p)
-            print(f'CREATED: {downloaded_paths[work_id]} to {p}')
+        p = os.path.join(path, dst_name)
+        source_path = downloaded_paths[work_id]
 
-    def maintain_symlink_by_bookmark_num_and_type(base_path):
+        # 核心逻辑：只在目标路径不存在时才进行创建
+        if os.path.lexists(p):
+            # print(f"路径 '{p}' 已存在，跳过创建。")
+            return
+
+        # --- 情况一：单页作品，创建单个硬链接 ---
+        if info['page_count'] == 1:
+            try:
+                os.link(source_path, p)
+                print(f'CREATED HARDLINK: {source_path} to {p}')
+            except OSError as e:
+                print(f"创建硬链接失败: {e}")
+        # --- 情况二：多页作品，创建包含硬链接的目录 ---
+        elif info['page_count'] > 1:
+            try:
+                os.makedirs(p)  # 创建目标文件夹
+                # 使用 os.scandir() 遍历源文件夹的顶层
+                with os.scandir(source_path) as it:
+                    for entry in it:
+                        if entry.is_file(follow_symlinks=False):
+                            destination_link = os.path.join(p, entry.name)
+                            try:
+                                os.link(entry.path, destination_link)
+                            except OSError as e_inner:
+                                print(f"创建内部硬链接失败: {e_inner}")
+                        elif entry.is_dir(follow_symlinks=False):
+                            print(f"警告: 在源目录 '{source_path}' 中发现子文件夹 '{entry.path}'，已跳过。")
+                print(f"CREATED HARDLINK DIRECTORY: {source_path} to {p}")
+            except OSError as e:
+                print(f"创建目录 '{p}' 或链接时失败: {e}")
+
+    def maintain_links_by_rank_and_type(base_path):
+        """
+        根据作品的排名和类型，维护其硬链接或硬链接目录。
+        """
+        # 1. 为新的排名创建链接
         if idx > 0:
-            create_symlink_general(os.path.join(base_path, rank_name(idx)))
+            create_new_link(os.path.join(base_path, rank_name(idx)))
+        # 2. 删除旧排名的链接
         if (old_idx := get_rank_idx(updated.get(work_id, 0))) > 0:
-            remove_old_num_symlink(os.path.join(base_path, rank_name(old_idx)))
+            # 确保旧排名和新排名不同，避免不必要的删除和重建
+            remove_old_link(os.path.join(base_path, rank_name(old_idx)))
+        # 3. 为动图类型创建额外的链接
         if dst_name.endswith('.mp4'):
-            create_symlink_general(os.path.join(base_path, '!UGOIRA'))
+            create_new_link(os.path.join(base_path, '!UGOIRA'))
 
     idx = get_rank_idx(info['total_bookmarks'])
     user_id = info['user']['id']
@@ -89,9 +152,9 @@ def create_symlinks(work_id, info, downloaded_paths, updated):
         if cls is not None:
             base = os.path.join(pd_symlink_path, cls, tag_projected)
             user_path = os.path.join(base, user_id_to_name.get(user_id, BOOKMARK_ONLY))
-            create_symlink_general(user_path)
-            maintain_symlink_by_bookmark_num_and_type(base)
-    maintain_symlink_by_bookmark_num_and_type(os.path.dirname(downloaded_paths[work_id]))
+            create_new_link(user_path)
+            maintain_links_by_rank_and_type(base)
+    maintain_links_by_rank_and_type(os.path.dirname(downloaded_paths[work_id]))
 
 
 def add_new_tags_of_bookmark_num():
@@ -115,10 +178,12 @@ def maintain_symlink_template(downloaded_database):
         new_d = json.load(f)
     with open(updated_info, 'r', encoding='utf-8') as f:
         updated_map = {_id: old_num for _id, old_num, new_num in json.load(f) if _id not in new_d and old_num < new_num}
-    for _id, info in d.items():
+    for _id in updated_map:
+        new_d[_id] = d[_id]
+    for _id, info in new_d.items():
         if info is None or 'user' not in info:
             continue
-        create_symlinks(_id, info, downloaded_paths, updated_map)
+        create_links(_id, info, downloaded_paths, updated_map)
 
 
 def merge_updated_bookmark_num(downloaded_database):
@@ -156,8 +221,10 @@ def uprank_old_close_works(downloaded_database):
 
 
 if __name__ == '__main__':
-    # get_all_exist_from_dir()
-    # get_all_exist_from_json(dl_database)
+    # s1 = set(str(x) for x in get_all_exist_from_dir().keys())
+    # s2 = set(get_all_exist_from_json(dl_database).keys())
+    # print(s1 - s2)
+    # print(s2 - s1)
     # uprank_old_close_works(dl_database)
     merge_updated_bookmark_num(dl_database)
     maintain_symlink_template(dl_database)
