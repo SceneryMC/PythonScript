@@ -57,7 +57,7 @@ def get_all_exist_from_json(downloaded_database):
     return result
 
 
-def create_links(work_id, info, downloaded_paths, updated):
+def create_links(work_id, info, downloaded_paths, updated, target_tags=pd_tags):
     def remove_old_link(path):
         """
         删除一个旧的链接。
@@ -146,7 +146,7 @@ def create_links(work_id, info, downloaded_paths, updated):
 
     idx = get_rank_idx(info['total_bookmarks'])
     user_id = info['user']['id']
-    results = set(map_duplicate_tags_to_one(tag['name']) for tag in info['tags'])
+    results = set(map_duplicate_tags_to_one(tag['name'], target_tags=target_tags) for tag in info['tags'])
     dst_name = get_target_name(info)
     for tag_projected, cls in results:
         if cls is not None:
@@ -170,20 +170,27 @@ def add_new_tags_of_bookmark_num():
         json.dump(d, f, ensure_ascii=False, indent=True)
 
 
-def maintain_symlink_template(downloaded_database):
+def maintain_symlink_template(downloaded_database, target_tags=pd_tags):
+    print(target_tags)
     downloaded_paths = get_all_exist_from_json(downloaded_database)
+
     with open(downloaded_database, 'r', encoding='utf-8') as f:
         d = json.load(f)
-    with open(os.path.join(os.path.dirname(downloaded_database), 'downloaded_info_new.json'), 'r', encoding='utf-8') as f:
-        new_d = json.load(f)
-    with open(updated_info, 'r', encoding='utf-8') as f:
-        updated_map = {_id: old_num for _id, old_num, new_num in json.load(f) if _id not in new_d and old_num < new_num}
-    for _id in updated_map:
-        new_d[_id] = d[_id]
-    for _id, info in new_d.items():
+    if target_tags is pd_tags:
+        with open(os.path.join(os.path.dirname(downloaded_database), 'downloaded_info_new.json'), 'r', encoding='utf-8') as f:
+            target_d = json.load(f)
+        with open(updated_info, 'r', encoding='utf-8') as f:
+            updated_map = {_id: old_num for _id, old_num, new_num in json.load(f) if _id not in target_d and old_num < new_num}
+        for _id in updated_map:
+            target_d[_id] = d[_id]
+    else:
+        updated_map = []
+        target_d = d
+
+    for _id, info in target_d.items():
         if info is None or 'user' not in info:
             continue
-        create_links(_id, info, downloaded_paths, updated_map)
+        create_links(_id, info, downloaded_paths, updated_map, target_tags)
 
 
 def merge_updated_bookmark_num(downloaded_database):
@@ -228,6 +235,7 @@ if __name__ == '__main__':
     # uprank_old_close_works(dl_database)
     merge_updated_bookmark_num(dl_database)
     maintain_symlink_template(dl_database)
+    # maintain_symlink_template(dl_database, target_tags=[(('Lanyan', '蓝砚', '藍硯'), 'CHARACTER'),])
     # add_new_tags_of_bookmark_num()
     # remove_wrong_symlink()
 
