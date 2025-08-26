@@ -184,7 +184,7 @@ def maintain_symlink_template(downloaded_database, target_tags=pd_tags):
         for _id in updated_map:
             target_d[_id] = d[_id]
     else:
-        updated_map = []
+        updated_map = {}
         target_d = d
 
     for _id, info in target_d.items():
@@ -233,9 +233,11 @@ if __name__ == '__main__':
     # print(s1 - s2)
     # print(s2 - s1)
     # uprank_old_close_works(dl_database)
-    merge_updated_bookmark_num(dl_database)
-    maintain_symlink_template(dl_database)
-    # maintain_symlink_template(dl_database, target_tags=[(('Lanyan', '蓝砚', '藍硯'), 'CHARACTER'),])
+    # merge_updated_bookmark_num(dl_database)
+    # maintain_symlink_template(dl_database)
+    maintain_symlink_template(dl_database, target_tags=[
+
+    ])
     # add_new_tags_of_bookmark_num()
     # remove_wrong_symlink()
 
