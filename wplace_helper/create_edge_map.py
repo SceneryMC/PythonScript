@@ -11,7 +11,7 @@ from scipy import ndimage as ndi
 ALGORITHM_CHOICE = "CANNY"
 
 # 2. 输入/输出文件名
-INPUT_FILENAME = r"E:\共享\dst\9148c828bis91\9148c828bis91_undithered.png"  # <--- 请修改为您的文件名
+INPUT_FILENAME = r"E:\共享\dst\00000-3494321294\00000-3494321294_undithered.png"  # <--- 请修改为您的文件名
 OUTPUT_FILENAME = f"template_edge_map_{ALGORITHM_CHOICE.lower()}.png"  # 输出文件名会自动变化
 
 # --- 算法参数 (请根据选择的算法进行调整) ---
