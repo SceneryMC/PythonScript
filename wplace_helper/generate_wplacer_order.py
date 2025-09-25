@@ -12,9 +12,9 @@ from numba import njit
 # ========================================================================
 # >> SETTINGS <<
 # ========================================================================
-PSD_FILE_PATH = "dst/9148c828bis91/9148c828bis91_undithered_new.psd"
-PIXEL_ART_PATH = "dst/9148c828bis91/9148c828bis91_converted.png"
-OUTPUT_JSON_PATH = "wplacer_draw_order.json"
+PSD_FILE_PATH = "dst/779706d9f9/779706d9f9_undithered.psd"
+PIXEL_ART_PATH = "dst/779706d9f9/779706d9f9_converted.png"
+OUTPUT_JSON_PATH = "wplacer_draw_order_779706d9f9.json"
 
 
 # ========================================================================
@@ -295,7 +295,26 @@ def main():
             if isinstance(obj, np.integer): return int(obj)
             return super(NumpyJSONEncoder, self).default(obj)
 
-    print(f"Total pixels in final draw order: {len(final_draw_order)}")
+    if pixel_art_image.shape[2] == 4:
+        print(f"Original order contains {len(final_draw_order)} pixels. Filtering transparent pixels...")
+
+        # 使用列表推导式进行一次高效的遍历和过滤
+        # 只保留那些在原图中 alpha > 0 的像素
+        final_draw_order_filtered = [
+            (x, y) for x, y in final_draw_order
+            if pixel_art_image[y, x, 3] > 0
+        ]
+
+        removed_count = len(final_draw_order) - len(final_draw_order_filtered)
+        if removed_count > 0:
+            print(f"  -> Removed {removed_count} transparent pixels.")
+
+        final_draw_order = final_draw_order_filtered
+    else:
+        print("Image has no alpha channel. Skipping transparency filter.")
+
+    print(f"Total non-transparent pixels in final draw order: {len(final_draw_order)}")
+
     try:
         with open(OUTPUT_JSON_PATH, 'w') as f:
             json.dump(final_draw_order, f, cls=NumpyJSONEncoder)
