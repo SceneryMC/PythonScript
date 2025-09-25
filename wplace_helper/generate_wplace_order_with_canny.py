@@ -12,10 +12,84 @@ from numba import njit
 # ========================================================================
 # >> SETTINGS <<
 # ========================================================================
-PSD_FILE_PATH = "dst/175822732/175822732_undithered_backup.psd"
+UNDITHERED_IMAGE_PATH = 'dst/175822732/175822732_undithered.png'
+PSD_FILE_PATH = "dst/175822732/175822732_undithered.psd"
 PIXEL_ART_PATH = "dst/175822732/175822732_converted.png"
 OUTPUT_JSON_PATH = "wplacer_draw_order_175822732.json"
+SNAP_DISTANCE = 3   # 离Canny边缘多远以内，会触发“吸附”行为
+IGNORE_DISTANCE = 0.5 # 离Canny边缘多近以内，被认为是“完美”的，无需移动
+                      # 设置为1.5可以同时覆盖水平/垂直(距离1.0)和对角线(距离sqrt(2)≈1.414)的紧邻情况
 
+
+def correct_stroke_with_conditional_snap(
+        stroke_coords: list[tuple[int, int]],
+        canny_edge_map: np.ndarray,
+        dist_transform: np.ndarray,
+        snap_distance: float,
+        ignore_distance: float
+) -> list[tuple[int, int]]:
+    """
+    使用“条件吸附”模型修正路径：当路径点靠近Canny边缘时，将其吸附上去；
+    当路径点已经非常近或离得很远时，则保持不变。
+
+    Args:
+        stroke_coords: 初始栅格化得到的路径像素坐标列表。
+        canny_edge_map: Canny边缘检测生成的二值图 (边缘为255)。
+        dist_transform: 基于Canny边缘图的距离变换结果。
+        snap_distance: 触发吸附行为的最大距离。
+        ignore_distance: 被认为是“完美”点，无需移动的最大距离。
+
+    Returns:
+        修正后的路径像素坐标列表。
+    """
+    if not stroke_coords:
+        return []
+
+    print(f"\nCorrecting stroke path with Conditional Snap (Snap ≤ {snap_distance}, Ignore ≤ {ignore_distance})...")
+
+    map_height, map_width = canny_edge_map.shape
+    corrected_coords = []
+    # 搜索半径应略大于吸附距离，确保能找到目标
+    correction_search_radius = int(snap_distance) + 2
+
+    points_to_snap = 0
+    for i, (px, py) in enumerate(stroke_coords):
+        # 边界检查
+        if not (0 <= px < map_width and 0 <= py < map_height):
+            continue
+
+        distance = dist_transform[py, px]
+
+        # 应用“三段式”规则
+        if distance <= ignore_distance:
+            # 情况一：点已经足够好，保留
+            corrected_coords.append((px, py))
+        elif distance <= snap_distance:
+            # 情况二：点在引力区，需要吸附
+            points_to_snap += 1
+            min_dist_sq = float('inf')
+            best_candidate = (px, py)  # 默认值为原坐标，以防万一找不到
+
+            # 在局部窗口内搜索最近的边缘点
+            for sy in range(max(0, py - correction_search_radius), min(map_height, py + correction_search_radius + 1)):
+                for sx in range(max(0, px - correction_search_radius),
+                                min(map_width, px + correction_search_radius + 1)):
+                    if canny_edge_map[sy, sx] == 255:  # 是一个边缘点
+                        dist_sq = (sx - px) ** 2 + (sy - py) ** 2
+                        if dist_sq < min_dist_sq:
+                            min_dist_sq = dist_sq
+                            best_candidate = (sx, sy)
+
+            corrected_coords.append(best_candidate)
+        else:
+            # 情况三：点离边缘太远，保留
+            corrected_coords.append((px, py))
+
+    # 去重
+    final_unique_coords = list(dict.fromkeys(corrected_coords))
+    print(
+        f"  -> Correction complete. Points considered for snapping: {points_to_snap}. Corrected unique points: {len(final_unique_coords)}")
+    return final_unique_coords
 
 # ========================================================================
 # >> 核心算法与辅助函数 (已重构) <<
@@ -339,6 +413,15 @@ def main():
         height, width, _ = pixel_art_image.shape
         if psd.width != width or psd.height != height: print(
             f"Warning: PSD size ({psd.width}x{psd.height}) does not match pixel art size ({width}x{height}).")
+
+        # [新增] 预先计算Canny边缘和距离变换
+        print("\nPreprocessing for edge correction...")
+        undithered_image = cv2.imread(UNDITHERED_IMAGE_PATH, cv2.IMREAD_GRAYSCALE)
+        # Canny的阈值可能需要根据你的图像进行调整
+        canny_edges = cv2.Canny(undithered_image, threshold1=50, threshold2=150)
+        # 注意: 距离变换的第二个参数是距离类型，cv2.DIST_L2是欧几里得距离，更精确
+        dist_transform = cv2.distanceTransform(255 - canny_edges, cv2.DIST_L2, 5)
+        print("  - Canny edge map and Distance Transform created.")
     except Exception as e:
         print(f"Error loading files: {e}"); return
 
@@ -368,19 +451,17 @@ def main():
                         f"  - Found layer {layer_num} ('{layer.name}') with {len(global_coords)} pixels at offset ({offset_x}, {offset_y}).")
 
     print("\n--- Phase B: Building Final Draw Order ---")
-    final_draw_order = []
-    processed_pixels = set()
 
     # [核心修正] Step 1: 直接使用有序的勾线像素，不再进行任何排序
-    print("\nStep 1: Processing all stroke paths (sequentially)...")
-    unique_step1_pixels = []
-    for p in all_stroke_paths_coords_ordered:
-        if p not in processed_pixels:
-            unique_step1_pixels.append(p)
-            processed_pixels.add(p)
-
-    final_draw_order.extend(unique_step1_pixels)
-    print(f"  -> Added {len(unique_step1_pixels)} unique pixels from strokes, preserving path direction.")
+    final_draw_order = correct_stroke_with_conditional_snap(
+        all_stroke_paths_coords_ordered,
+        canny_edges,
+        dist_transform,
+        snap_distance=SNAP_DISTANCE,
+        ignore_distance=IGNORE_DISTANCE
+    )
+    processed_pixels = set(final_draw_order)
+    assert len(processed_pixels) == len(final_draw_order)
 
     print("\nStep 2: Processing regions from layer 3 upwards (individually)...")
     layer_nums_step2 = sorted([num for num in layer_regions.keys() if num >= 3])
