@@ -12,9 +12,9 @@ from numba import njit
 # ========================================================================
 # >> SETTINGS <<
 # ========================================================================
-PSD_FILE_PATH = "dst/779706d9f9/779706d9f9_undithered.psd"
-PIXEL_ART_PATH = "dst/779706d9f9/779706d9f9_converted.png"
-OUTPUT_JSON_PATH = "wplacer_draw_order_779706d9f9.json"
+PSD_FILE_PATH = "dst/175822732/175822732_undithered.psd"
+PIXEL_ART_PATH = "dst/175822732/175822732_converted.png"
+OUTPUT_JSON_PATH = "wplacer_draw_order_175822732.json"
 
 
 # ========================================================================
@@ -43,10 +43,30 @@ def extract_paths_from_image_resources(psd: PSDImage):  # ...
     return all_subpaths
 
 
-def rasterize_subpaths(subpaths: list[Subpath], width: int, height: int):  # ...
-    if not subpaths: return []
-    print(f"\nRasterizing {len(subpaths)} subpaths...")
-    all_paths_coords = []
+# ========================================================================
+# >> [已重构] 包含智能修正的栅格化函数 <<
+# ========================================================================
+
+def rasterize_subpaths_ordered(subpaths: list[Subpath], pixel_art_image: np.ndarray):
+    """
+    [已重构] 将 Subpath 栅格化为有序像素列表，并智能修正路径使其贴合非透明像素。
+    """
+    height, width, channels = pixel_art_image.shape
+    # 我们需要一个Alpha通道的副本来快速检查透明度
+    # 如果图像没有Alpha通道，我们创建一个全不透明的通道
+    if channels == 4:
+        alpha_channel = pixel_art_image[:, :, 3]
+    else:
+        alpha_channel = np.full((height, width), 255, dtype=np.uint8)
+
+    if not subpaths:
+        return []
+
+    print(f"\nRasterizing {len(subpaths)} subpaths with Smart Correction...")
+
+    final_ordered_coords = {}
+    last_valid_point = None
+
     for i, subpath in enumerate(subpaths):
         knots_in_subpath = []
         for segment in subpath:
@@ -54,17 +74,128 @@ def rasterize_subpaths(subpaths: list[Subpath], width: int, height: int):  # ...
                 knots_in_subpath.append(segment)
             elif hasattr(segment, '_items'):
                 knots_in_subpath.extend(segment._items)
-        points = [knot.anchor for knot in knots_in_subpath]
-        if not points: continue
-        abs_points = np.array([(p[1] * width, p[0] * height) for p in points], dtype=np.int32)
-        canvas = np.zeros((height, width), dtype=np.uint8)
-        is_closed = subpath.is_closed()
-        cv2.polylines(canvas, [abs_points], is_closed, 255, 1)
-        ys, xs = np.where(canvas > 0)
-        path_coords = list(zip(xs, ys));
-        all_paths_coords.append(path_coords)
-    print(f"  -> Rasterized into {len(all_paths_coords)} separate path pixel groups.")
-    return all_paths_coords
+
+        if len(knots_in_subpath) < 1:
+            continue
+
+        abs_points = [(knot.anchor[1] * width, knot.anchor[0] * height) for knot in knots_in_subpath]
+
+        if subpath.is_closed() and len(abs_points) > 1:
+            abs_points.append(abs_points[0])
+
+        # 遍历路径的每一段
+        for j in range(len(abs_points)):
+            # 处理第一个点
+            if j == 0:
+                x1, y1 = abs_points[j]
+                px, py = int(round(x1)), int(round(y1))
+
+                # 如果第一个点就是透明的，需要特殊处理
+                if 0 <= px < width and 0 <= py < height and alpha_channel[py, px] == 0:
+                    # 在一个小范围内 (例如5x5) 寻找最近的非透明点作为起点
+                    search_radius = 5
+                    min_dist_sq = float('inf')
+                    found_alt = False
+                    alt_px, alt_py = -1, -1
+
+                    for sx in range(max(0, px - search_radius), min(width, px + search_radius + 1)):
+                        for sy in range(max(0, py - search_radius), min(height, py + search_radius + 1)):
+                            if alpha_channel[sy, sx] > 0:
+                                dist_sq = (sx - px) ** 2 + (sy - py) ** 2
+                                if dist_sq < min_dist_sq:
+                                    min_dist_sq = dist_sq
+                                    alt_px, alt_py = sx, sy
+                                    found_alt = True
+                    if found_alt:
+                        px, py = alt_px, alt_py
+
+                # 只有当点有效时才添加
+                if 0 <= px < width and 0 <= py < height and alpha_channel[py, px] > 0:
+                    final_ordered_coords[(px, py)] = None
+                    last_valid_point = (px, py)
+
+                if len(abs_points) == 1:  # 如果路径只有一个点
+                    continue
+
+            # 处理线段
+            x1, y1 = abs_points[j]
+            x2, y2 = abs_points[j + 1] if j + 1 < len(abs_points) else abs_points[j]
+
+            # 确定前进方向
+            dx_fwd, dy_fwd = x2 - x1, y2 - y1
+
+            # DDA 插值
+            steps = int(max(abs(dx_fwd), abs(dy_fwd)))
+            if steps == 0: steps = 1
+            x_inc, y_inc = dx_fwd / steps, dy_fwd / steps
+
+            current_x, current_y = x1, y1
+            for step in range(steps + 1):
+                px, py = int(round(current_x)), int(round(current_y))
+
+                # 边界检查
+                if not (0 <= px < width and 0 <= py < height):
+                    current_x += x_inc
+                    current_y += y_inc
+                    continue
+
+                # 验证像素
+                if alpha_channel[py, px] > 0:
+                    # 像素有效
+                    final_ordered_coords[(px, py)] = None
+                    last_valid_point = (px, py)
+                else:
+                    # --- [ 核心修正：智能寻找替代点 ] ---
+                    # 像素无效 (透明)，需要寻找替代
+
+                    # 确定前进方向 (最好用上一个有效点来计算，更精确)
+                    if last_valid_point:
+                        vec_x, vec_y = px - last_valid_point[0], py - last_valid_point[1]
+                    else:  # 如果是路径的第一个点就无效
+                        vec_x, vec_y = dx_fwd, dy_fwd
+
+                    # 归一化方向向量
+                    mag = np.sqrt(vec_x ** 2 + vec_y ** 2)
+                    if mag > 0:
+                        vec_x, vec_y = vec_x / mag, vec_y / mag
+
+                    # 确定两个垂直搜索方向
+                    # perp_vec1 = (-vec_y, vec_x)
+                    # perp_vec2 = (vec_y, -vec_x)
+                    p_dx1, p_dy1 = -vec_y, vec_x
+                    p_dx2, p_dy2 = vec_y, -vec_x
+
+                    found_alt = False
+                    # 向两侧交替搜索，看谁先找到
+                    for search_dist in range(1, 15):  # 最大搜索15像素远
+                        # 方向1
+                        nx1 = int(round(px + p_dx1 * search_dist))
+                        ny1 = int(round(py + p_dy1 * search_dist))
+                        if 0 <= nx1 < width and 0 <= ny1 < height and alpha_channel[ny1, nx1] > 0:
+                            final_ordered_coords[(nx1, ny1)] = None
+                            last_valid_point = (nx1, ny1)
+                            found_alt = True
+                            break
+
+                        # 方向2
+                        nx2 = int(round(px + p_dx2 * search_dist))
+                        ny2 = int(round(py + p_dy2 * search_dist))
+                        if 0 <= nx2 < width and 0 <= ny2 < height and alpha_channel[ny2, nx2] > 0:
+                            final_ordered_coords[(nx2, ny2)] = None
+                            last_valid_point = (nx2, ny2)
+                            found_alt = True
+                            break
+
+                    if found_alt:
+                        # 找到了替代点，更新当前插值位置，避免路径大幅跳跃
+                        current_x, current_y = last_valid_point[0], last_valid_point[1]
+
+                current_x += x_inc
+                current_y += y_inc
+
+    ordered_pixel_list = list(final_ordered_coords.keys())
+    print(f"  -> Generated an ordered and corrected stroke path with {len(ordered_pixel_list)} unique pixels.")
+    return ordered_pixel_list
 
 
 # --- [ 区域分解 (已彻底重构) ] ---
@@ -213,7 +344,10 @@ def main():
 
     print("\n--- Phase A: Parsing PSD Data ---")
     all_subpaths = extract_paths_from_image_resources(psd)
-    all_stroke_paths_coords_lists = rasterize_subpaths(all_subpaths, width, height)
+
+    # [核心修正] 调用新的、能返回有序列表的栅格化函数
+    all_stroke_paths_coords_ordered = rasterize_subpaths_ordered(all_subpaths, pixel_art_image)
+
     print("\nExtracting numbered layer regions...")
     import re
     layer_regions = {};
@@ -233,19 +367,20 @@ def main():
                     print(
                         f"  - Found layer {layer_num} ('{layer.name}') with {len(global_coords)} pixels at offset ({offset_x}, {offset_y}).")
 
-    print("\n--- Phase B: Building Final Draw Order ---");
-    final_draw_order = [];
+    print("\n--- Phase B: Building Final Draw Order ---")
+    final_draw_order = []
     processed_pixels = set()
 
-    print("\nStep 1: Processing all stroke paths (individually)...")
-    for i, path_coords_list in enumerate(all_stroke_paths_coords_lists):
-        print(f"  - Processing Path Group {i + 1}/{len(all_stroke_paths_coords_lists)}...")
-        pixels_to_process = set(path_coords_list) - processed_pixels
-        regions_by_color = find_contiguous_regions(pixels_to_process, pixel_art_image)
-        sorted_path_pixels = sort_and_flatten_regions(regions_by_color)
-        final_draw_order.extend(sorted_path_pixels);
-        processed_pixels.update(sorted_path_pixels)
-        print(f"    -> Added {len(sorted_path_pixels)} unique pixels.")
+    # [核心修正] Step 1: 直接使用有序的勾线像素，不再进行任何排序
+    print("\nStep 1: Processing all stroke paths (sequentially)...")
+    unique_step1_pixels = []
+    for p in all_stroke_paths_coords_ordered:
+        if p not in processed_pixels:
+            unique_step1_pixels.append(p)
+            processed_pixels.add(p)
+
+    final_draw_order.extend(unique_step1_pixels)
+    print(f"  -> Added {len(unique_step1_pixels)} unique pixels from strokes, preserving path direction.")
 
     print("\nStep 2: Processing regions from layer 3 upwards (individually)...")
     layer_nums_step2 = sorted([num for num in layer_regions.keys() if num >= 3])
