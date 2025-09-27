@@ -1,4 +1,5 @@
 import json
+import os
 
 import cv2
 import imageio
@@ -13,9 +14,10 @@ ORIGINAL_TEMPLATE_FILENAME = "dst/175822732/175822732_converted.png"
 # 2. 边缘地图文件名：您用Canny生成的黑白边缘图
 EDGE_MAP_FILENAME = "edges/175822732_edge.png"
 # 3. 输出文件名
-OUTPUT_FILENAME = "visualization_final_fused_algorithm_175822732.mp4"
+OUTPUT_FILENAME = "visualization_final_fused_algorithm/175822732.mp4"
 
-JSON_OUTPUT_FILENAME = "ideal_outline_order_175822732.json"
+JSON_OUTPUT_FILENAME = "visualization_final_fused_algorithm/175822732.json"
+os.makedirs('visualization_final_fused_algorithm', exist_ok=True)
 
 # 4. GIF动画参数
 GIF_FPS = 60  # 帧率 (Frames Per Second)

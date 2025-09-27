@@ -15,7 +15,8 @@ ORDER_JSON_PATH = "wplacer_draw_order_175822732_new.json"
 PIXEL_ART_PATH = "dst/175822732/175822732_converted.png"
 
 # 必需：最终生成的视频文件的输出路径
-OUTPUT_VIDEO_PATH = "final_drawing_visualization_175822732_new.mp4"
+OUTPUT_VIDEO_PATH = "visualize_from_json/175822732_new.mp4"
+os.makedirs('visualize_from_json', exist_ok=True)
 
 # 可选：视频的帧率 (Frames Per Second)
 FPS = 60

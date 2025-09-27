@@ -17,8 +17,9 @@ from scipy.spatial import distance as dist
 PSD_FILE_PATH = "dst/175822732/175822732_undithered_backup.psd"
 PIXEL_ART_PATH = "dst/175822732/175822732_converted.png"
 UNDITHERED_PIXEL_ART_PATH = "dst/175822732/175822732_undithered.png"
-OUTPUT_JSON_PATH = "wplacer_draw_order_175822732_new.json"
-OUTPUT_VISUALIZATION_PATH = "path_visualization.png"
+OUTPUT_JSON_PATH = "wplacer_draw_order_try/175822732.json"
+OUTPUT_VISUALIZATION_PATH = "wplacer_draw_order_try/path_visualization.png"
+os.makedirs('wplacer_draw_order_try', exist_ok=True)
 
 # 路径处理参数
 NUM_OUTLINE_PATHS = 5

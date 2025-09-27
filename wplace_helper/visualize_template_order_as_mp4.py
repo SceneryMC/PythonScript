@@ -180,7 +180,8 @@ def main():
         pixels_ordered = deserialize_draw_order(target_template)
 
         safe_filename = "".join(c for c in TEMPLATE_NAME_TO_VISUALIZE if c.isalnum() or c in (' ', '_')).rstrip()
-        output_filename = f"{safe_filename}_visualization.mp4"
+        os.makedirs('visualize_template_order_as_mp4', exist_ok=True)
+        output_filename = f"visualize_template_order_as_mp4/{safe_filename}.mp4"
 
         create_video_visualization_real(
             pixels_ordered=pixels_ordered,

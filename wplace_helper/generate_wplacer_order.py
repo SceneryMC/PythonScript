@@ -14,7 +14,8 @@ from numba import njit
 # ========================================================================
 PSD_FILE_PATH = "dst/175822732/175822732_undithered_backup.psd"
 PIXEL_ART_PATH = "dst/175822732/175822732_converted.png"
-OUTPUT_JSON_PATH = "wplacer_draw_order_175822732.json"
+OUTPUT_JSON_PATH = "wplacer_draw_order/175822732.json"
+os.makedirs('wplacer_draw_order', exist_ok=True)
 
 
 # ========================================================================
