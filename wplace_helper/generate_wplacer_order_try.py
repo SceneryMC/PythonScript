@@ -20,22 +20,22 @@ UNDITHERED_PIXEL_ART_PATH = "dst/175822732/175822732_undithered.png"
 OUTPUT_JSON_PATH = "wplacer_draw_order_175822732_new.json"
 OUTPUT_VISUALIZATION_PATH = "path_visualization.png"
 
-# [新增] 路径处理参数: 处理前 N 条路径的首个子路径作为轮廓
-NUM_OUTLINE_PATHS = 1
+# 路径处理参数
+NUM_OUTLINE_PATHS = 5
 
-# 算法参数
-ERROR_BOUND = 2
-NEIGHBOUR_RANGE = 8
-COLOR_SIMILARITY_THRESHOLD = 25  # 用于“内推”修正，判断毛刺
+# [已修改] 算法参数
+NEIGHBOUR_RANGE = 4  # 用于计算颜色平均值的大邻域范围 (e.g., 19x19)
+ERROR_BOUND = 4      # 用于在内推时查找候选替换点的小范围 (e.g., 9x9)
+COLOR_SIMILARITY_THRESHOLD = 25
 
 # 保守外推算法参数
-CONSERVATIVE_EXTRAPOLATION_ENABLED = True
-SIMILARITY_THRESHOLD_FOR_EXTRAPOLATION = 12  # 内外颜色相似度阈值(LAB)，低于此值则触发外推
-EDGE_DIFFERENCE_THRESHOLD_FOR_EXTRAPOLATION = 18  # 边缘颜色差异阈值(LAB)，高于此值则认为是边缘
-MAX_SCAN_DISTANCE = 2  # 向外扫描的最大像素距离
+CONSERVATIVE_EXTRAPOLATION_ENABLED = False
+SIMILARITY_THRESHOLD_FOR_EXTRAPOLATION = 12
+EDGE_DIFFERENCE_THRESHOLD_FOR_EXTRAPOLATION = 18
+MAX_SCAN_DISTANCE = 2
 
-# [新增] 路径连续性插值参数
-ENABLE_POST_INTERPOLATION = True  # 是否启用最终路径的插值填补
+# 路径连续性插值参数
+ENABLE_POST_INTERPOLATION = True
 
 
 # ========================================================================
@@ -142,17 +142,28 @@ def extract_grouped_paths_from_psd(psd: PSDImage) -> list[list[Subpath]]:
 
 def rasterize_subpaths_ordered(subpaths: list[Subpath], pixel_art_image: np.ndarray):
     """
-    将 Subpath 栅格化为有序像素列表。
+    [已恢复智能修正] 将 Subpath 栅格化为有序像素列表，并智能修正路径使其贴合非透明像素。
     """
-    height, width, _ = pixel_art_image.shape
+    height, width, channels = pixel_art_image.shape
+
+    # 必须有Alpha通道才能进行智能修正
+    if channels < 4:
+        print("  - 警告: 图像无Alpha通道，将执行无修正的栅格化。")
+        # 在这里可以调用一个简化的、无Alpha检查的版本，或者直接继续（效果相同）
+        pass
+
+    alpha_channel = pixel_art_image[:, :, 3] if channels == 4 else np.full((height, width), 255, dtype=np.uint8)
+
     if not subpaths: return []
 
     final_ordered_coords = {}
-    for subpath in subpaths:
-        knots_in_subpath = [k for k in subpath if isinstance(k, Knot)]
-        if len(knots_in_subpath) < 1: continue
+    last_valid_point = None
 
-        abs_points = [(knot.anchor[1] * width, knot.anchor[0] * height) for knot in knots_in_subpath]
+    for subpath in subpaths:
+        knots = [k for k in subpath if isinstance(k, Knot)]
+        if not knots: continue
+
+        abs_points = [(k.anchor[1] * width, k.anchor[0] * height) for k in knots]
         if subpath.is_closed() and len(abs_points) > 1:
             abs_points.append(abs_points[0])
 
@@ -160,15 +171,42 @@ def rasterize_subpaths_ordered(subpaths: list[Subpath], pixel_art_image: np.ndar
             x1, y1 = abs_points[j]
             x2, y2 = abs_points[j + 1]
             dx, dy = x2 - x1, y2 - y1
-            steps = int(max(abs(dx), abs(dy)))
-            if steps == 0: steps = 1
+            steps = int(max(abs(dx), abs(dy))) or 1
             x_inc, y_inc = dx / steps, dy / steps
             current_x, current_y = x1, y1
-            for _ in range(steps + 1):
+
+            for step in range(steps + 1):
                 px, py = int(round(current_x)), int(round(current_y))
-                if 0 <= px < width and 0 <= py < height:
+
+                # 边界检查
+                if not (0 <= px < width and 0 <= py < height):
+                    current_x += x_inc;
+                    current_y += y_inc
+                    continue
+
+                # --- 核心的透明度检查 ---
+                if alpha_channel[py, px] > 0:
+                    # 像素有效 (非透明)
                     final_ordered_coords[(px, py)] = None
-                current_x += x_inc;
+                    last_valid_point = (px, py)
+                else:
+                    # 像素无效 (透明)，需要寻找替代点
+                    found_alt = False
+                    # 在一个小范围内 (例如5x5) 寻找最近的非透明点
+                    for search_radius in range(1, 6):
+                        for sx in range(max(0, px - search_radius), min(width, px + search_radius + 1)):
+                            for sy in range(max(0, py - search_radius), min(height, py + search_radius + 1)):
+                                if alpha_channel[sy, sx] > 0:
+                                    final_ordered_coords[(sx, sy)] = None
+                                    last_valid_point = (sx, sy)
+                                    # 立即更新当前位置，避免路径大幅跳跃
+                                    current_x, current_y = sx, sy
+                                    found_alt = True
+                                    break
+                            if found_alt: break
+                        if found_alt: break
+
+                current_x += x_inc
                 current_y += y_inc
 
     return list(final_ordered_coords.keys())
@@ -268,7 +306,10 @@ def extrapolate_inner_path_points(
 
 
 def refine_outline_path(path_from_stage1, moved_indices_from_stage1, outline_contour, undithered_image):
-    """[阶段二] 内推修正，跳过第一阶段已移动的点。"""
+    """
+    [阶段二] 内推修正。
+    [已重构] 使用 NEIGHBOUR_RANGE 感知环境，使用 ERROR_BOUND 查找候选点。
+    """
     print("\n--- Main Correction (Stage 2): Refining Outline Path ---")
     height, width, _ = undithered_image.shape
     lab_undithered_image = cv2.cvtColor(undithered_image, cv2.COLOR_BGR2LAB)
@@ -280,29 +321,49 @@ def refine_outline_path(path_from_stage1, moved_indices_from_stage1, outline_con
             continue
         px, py = p
         if (i + 1) % 500 == 0: print(f"  - Refining pixel {i + 1}/{total_pixels}...")
-        y_min, y_max = max(0, py - ERROR_BOUND), min(height, py + ERROR_BOUND + 1)
-        x_min, x_max = max(0, px - ERROR_BOUND), min(width, px + ERROR_BOUND + 1)
-        inside_coords, outside_coords = [], []
-        for y in range(y_min, y_max):
-            for x in range(x_min, x_max):
-                (inside_coords if cv2.pointPolygonTest(outline_contour, (x, y), False) >= 0 else outside_coords).append(
-                    (x, y))
+
+        # [修改] 1. 使用大的 NEIGHBOUR_RANGE 定义感知邻域
+        y_min, y_max = max(0, py - NEIGHBOUR_RANGE), min(height, py + NEIGHBOUR_RANGE + 1)
+        x_min, x_max = max(0, px - NEIGHBOUR_RANGE), min(width, px + NEIGHBOUR_RANGE + 1)
+        outside_coords = [
+            (x, y) for y in range(y_min, y_max) for x in range(x_min, x_max)
+            if cv2.pointPolygonTest(outline_contour, (x, y), False) < 0
+        ]
         if not outside_coords:
             corrected_path.append(p);
             continue
+
+        # 2. 计算外部平均色
         avg_outside_lab = np.mean([lab_undithered_image[y, x] for x, y in outside_coords], axis=0)
+
+        # 3. 判断当前点是否为毛刺
         if color_difference(lab_undithered_image[py, px], avg_outside_lab) > COLOR_SIMILARITY_THRESHOLD:
             corrected_path.append(p);
             continue
-        valid_candidates = [c for c in inside_coords if color_difference(lab_undithered_image[c[1], c[0]],
-                                                                         avg_outside_lab) >= COLOR_SIMILARITY_THRESHOLD]
+
+        # --- [核心修改] 4. 如果是毛刺，在小的 ERROR_BOUND 范围内查找候选点 ---
+        cand_y_min, cand_y_max = max(0, py - ERROR_BOUND), min(height, py + ERROR_BOUND + 1)
+        cand_x_min, cand_x_max = max(0, px - ERROR_BOUND), min(width, px + ERROR_BOUND + 1)
+
+        candidate_pool = [
+            (x, y) for y in range(cand_y_min, cand_y_max) for x in range(cand_x_min, cand_x_max)
+            if cv2.pointPolygonTest(outline_contour, (x, y), False) >= 0
+        ]
+
+        valid_candidates = [
+            c for c in candidate_pool
+            if color_difference(lab_undithered_image[c[1], c[0]], avg_outside_lab) >= COLOR_SIMILARITY_THRESHOLD
+        ]
+
         if valid_candidates:
             distances = [dist.euclidean(p, cand) for cand in valid_candidates]
             best_candidate = valid_candidates[np.argmin(distances)]
             corrected_path.append(best_candidate);
             corrected_count += 1
         else:
+            # 如果在小范围内找不到，则放弃修正
             corrected_path.append(p)
+
     print(f"  -> Path refinement complete. Corrected {corrected_count} outlier pixels (excluding locked points).")
     return corrected_path
 
@@ -428,6 +489,12 @@ def sort_and_flatten_regions(regions_by_color):
 # ========================================================================
 # >> 主执行逻辑 <<
 # ========================================================================
+# ========================================================================
+# >> 主执行逻辑 (已修正) <<
+# ========================================================================
+# ========================================================================
+# >> 主执行逻辑 (已修正) <<
+# ========================================================================
 def main():
     print("--- WPlacer Draw Order Generator ---")
     try:
@@ -436,118 +503,152 @@ def main():
         undithered_image = cv2.imread(UNDITHERED_PIXEL_ART_PATH)
         height, width, _ = pixel_art_image.shape
     except Exception as e:
-        print(f"Error loading files: {e}");
-        return
+        print(f"Error loading files: {e}"); return
 
-    print("\n--- Phase A: Parsing PSD Data & Path Preparation ---")
+    print("\n--- Phase A: Parsing PSD Data & Path Correction ---")
     all_grouped_subpaths = extract_grouped_paths_from_psd(psd)
     if not all_grouped_subpaths: return
 
-    print(f"\nSelecting first subpath from the first {NUM_OUTLINE_PATHS} path(s) as the outline...")
-    outline_subpaths = []
-    num_to_process = min(NUM_OUTLINE_PATHS, len(all_grouped_subpaths))
-    for i in range(num_to_process):
-        if all_grouped_subpaths[i]:
-            outline_subpaths.append(all_grouped_subpaths[i][0])
-    print(f"  -> Selected {len(outline_subpaths)} subpath(s) for outline correction.")
+    outline_subpaths_to_process = []
+    num_to_select = min(NUM_OUTLINE_PATHS, len(all_grouped_subpaths))
+    for i in range(num_to_select):
+        if all_grouped_subpaths[i]: outline_subpaths_to_process.append(all_grouped_subpaths[i][0])
 
-    outline_contour_points = []
-    for subpath in outline_subpaths:
-        points = [[k.anchor[1] * width, k.anchor[0] * height] for k in subpath if isinstance(k, Knot)]
-        outline_contour_points.extend(points)
-    outline_contour = np.array(outline_contour_points, dtype=np.float32).reshape((-1, 1, 2))
-
-    initial_outline_pixels = rasterize_subpaths_ordered(outline_subpaths, pixel_art_image)
+    all_initial_pixels, all_extrapolated_pixels, all_final_outline_pixels = [], [], []
+    main_boundary_final_path = None
 
     print("\n--- Path Correction Stage Initiated ---")
-    moved_indices_stage1 = set()
-    if CONSERVATIVE_EXTRAPOLATION_ENABLED:
-        extrapolated_path, moved_indices_stage1 = extrapolate_inner_path_points(initial_outline_pixels, outline_contour,
-                                                                                undithered_image)
-    else:
-        print("\n--- Pre-correction (Stage 1) was skipped by settings. ---")
-        extrapolated_path = initial_outline_pixels
+    for i, subpath in enumerate(outline_subpaths_to_process):
+        print(f"\n>>> Processing Outline Subpath {i + 1}/{len(outline_subpaths_to_process)} <<<")
+        initial_contour_points = [[k.anchor[1] * width, k.anchor[0] * height] for k in subpath if isinstance(k, Knot)]
+        initial_outline_contour = np.array(initial_contour_points, dtype=np.float32).reshape((-1, 1, 2))
 
-    refined_path = refine_outline_path(extrapolated_path, moved_indices_stage1, outline_contour, undithered_image)
+        initial_pixels = rasterize_subpaths_ordered([subpath], pixel_art_image)
+        moved_indices = set()
+        if CONSERVATIVE_EXTRAPOLATION_ENABLED:
+            extrapolated_path, moved_indices = extrapolate_inner_path_points(initial_pixels, initial_outline_contour,
+                                                                             undithered_image)
+        else:
+            extrapolated_path = initial_pixels
+        refined_path = refine_outline_path(extrapolated_path, moved_indices, initial_outline_contour, undithered_image)
+        final_path = interpolate_path_gaps(refined_path) if ENABLE_POST_INTERPOLATION else refined_path
 
-    if ENABLE_POST_INTERPOLATION:
-        final_outline_pixels = interpolate_path_gaps(refined_path)
-    else:
-        print("\n--- Post-correction (Stage 3) was skipped by settings. ---")
-        final_outline_pixels = refined_path
+        all_initial_pixels.extend(initial_pixels)
+        all_extrapolated_pixels.extend(extrapolated_path)
+        all_final_outline_pixels.extend(final_path)
 
-    print("\n--- Path Correction Finished ---")
+        if i == 0:
+            main_boundary_final_path = final_path
 
-    visualize_correction_stages(initial_outline_pixels, extrapolated_path, final_outline_pixels, width, height,
+    print("\n\n--- All Path Corrections Finished ---")
+    visualize_correction_stages(all_initial_pixels, all_extrapolated_pixels, all_final_outline_pixels, width, height,
                                 OUTPUT_VISUALIZATION_PATH)
+
+    main_boundary_contour = None
+    if main_boundary_final_path:
+        contour_points = [(float(p[0]), float(p[1])) for p in main_boundary_final_path]
+        main_boundary_contour = np.array(contour_points, dtype=np.float32).reshape((-1, 1, 2))
+        print("\nSuccessfully defined the main boundary from the *final corrected* first subpath for layer filtering.")
+    else:
+        print("\nWarning: Could not define a main boundary. Filtering will be skipped.")
 
     print("\n--- Phase B: Building Final Draw Order ---")
     final_draw_order, processed_pixels = [], set()
+    spilled_pixels_to_reprocess = set()
 
-    print("\nStep 1: Processing refined and finalized outline path...")
-    unique_step1_pixels = [p for p in final_outline_pixels if
+    # --- [ 此处是修正点 ] ---
+
+    # 1. 首先，获取所有路径（包括轮廓和剩余部分）的完整像素列表
+
+    # [新增] 正确定义 remaining_subpaths
+    all_subpaths_flat = [sub for group in all_grouped_subpaths for sub in group]
+    remaining_subpaths = [sub for sub in all_subpaths_flat if sub not in outline_subpaths_to_process]
+
+    all_stroke_pixels_initial = []
+    all_stroke_pixels_initial.extend(all_final_outline_pixels)
+    remaining_pixels_initial = rasterize_subpaths_ordered(remaining_subpaths, pixel_art_image)
+    all_stroke_pixels_initial.extend(remaining_pixels_initial)
+
+    print(f"\nFiltering all {len(all_stroke_pixels_initial)} stroke pixels against the main boundary...")
+
+    # 2. 过滤这个完整的列表
+    if main_boundary_contour is not None:
+        filtered_stroke_pixels = [
+            p for p in all_stroke_pixels_initial
+            if cv2.pointPolygonTest(main_boundary_contour, tuple(map(float, p)), False) >= 0
+        ]
+        removed_count = len(all_stroke_pixels_initial) - len(filtered_stroke_pixels)
+        print(f"  -> Filtering complete. Removed {removed_count} pixels that were outside the boundary.")
+    else:
+        print("  -> No main boundary defined, skipping stroke pixel filtering.")
+        filtered_stroke_pixels = all_stroke_pixels_initial
+
+    # 3. 使用“净化”过的列表构建 Step 1
+    print("\nStep 1: Processing all filtered stroke paths...")
+    unique_step1_pixels = [p for p in filtered_stroke_pixels if
                            tuple(p) not in processed_pixels and (processed_pixels.add(tuple(p)) or True)]
     final_draw_order.extend(unique_step1_pixels)
-    print(f"  -> Added {len(unique_step1_pixels)} unique pixels from the final outline.")
+    print(f"  -> Added {len(unique_step1_pixels)} unique pixels from all filtered stroke paths.")
 
-    print("\nStep 1.5: Processing remaining stroke paths...")
-    all_subpaths_flat = [sub for group in all_grouped_subpaths for sub in group]
-    remaining_subpaths = [sub for sub in all_subpaths_flat if sub not in outline_subpaths]
-    remaining_pixels = rasterize_subpaths_ordered(remaining_subpaths, pixel_art_image)
-    unique_step1_5_pixels = [p for p in remaining_pixels if
-                             tuple(p) not in processed_pixels and (processed_pixels.add(tuple(p)) or True)]
-    final_draw_order.extend(unique_step1_5_pixels)
-    print(f"  -> Added {len(unique_step1_5_pixels)} unique pixels from other paths.")
+    # -----------------------------
 
-    print("\nExtracting numbered layer regions...")
+    # 图层像素提取
     layer_regions = {}
     for layer in psd:
-        if layer.is_visible() and not layer.is_group():
+        if layer.is_visible() and not layer.is_group() and layer.width > 0 and layer.height > 0:
             match = re.search(r'(\d+)$', layer.name)
             if match:
-                num = int(match.group(1))
-                if layer.width > 0 and layer.height > 0:
-                    layer_numpy = layer.numpy()
-                    if layer_numpy.shape[2] == 4:
-                        alpha = layer_numpy[:, :, 3]
-                        ys, xs = np.where(alpha > 0)
-                        layer_regions[num] = set(zip(xs + layer.left, ys + layer.top))
-                        print(f"  - Found layer {num} ('{layer.name}') with {len(layer_regions[num])} pixels.")
+                num = int(match.group(1));
+                layer_numpy = layer.numpy()
+                if layer_numpy.shape[2] == 4:
+                    ys, xs = np.where(layer_numpy[:, :, 3] > 0)
+                    layer_regions[num] = set(zip(xs + layer.left, ys + layer.top))
 
+    # Step 2 & 3 & 4
     layer_nums_step2 = sorted([num for num in layer_regions if num >= 3])
     print(f"\nStep 2: Processing regions from layer 3 upwards ({len(layer_nums_step2)} layers)...")
     for num in layer_nums_step2:
-        print(f"  - Processing Layer {num}...")
-        pixels = layer_regions.get(num, set()) - processed_pixels
-        regions = find_contiguous_regions(pixels, pixel_art_image)
-        sorted_pixels = sort_and_flatten_regions(regions)
+        pixels_to_process = layer_regions.get(num, set()) - processed_pixels
+        if main_boundary_contour is not None:
+            pixels_inside = {p for p in pixels_to_process if
+                             cv2.pointPolygonTest(main_boundary_contour, tuple(map(float, p)), False) >= 0}
+            pixels_outside = pixels_to_process - pixels_inside
+            spilled_pixels_to_reprocess.update(pixels_outside)
+            pixels_to_process = pixels_inside
+            print(
+                f"  - Layer {num}: Filtered out {len(pixels_outside)} pixels. Processing {len(pixels_inside)} inside pixels.")
+        sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image))
         final_draw_order.extend(sorted_pixels);
         processed_pixels.update(map(tuple, sorted_pixels))
-        print(f"    -> Added {len(sorted_pixels)} unique pixels.")
 
     print("\nStep 3: Processing layer 2 minus regions from step 2...")
     if 2 in layer_regions:
         layers_3_up_union = set().union(*(layer_regions.get(num, set()) for num in layer_nums_step2))
-        pixels = (layer_regions[2] - layers_3_up_union) - processed_pixels
-        sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels, pixel_art_image))
+        pixels_to_process = (layer_regions[2] - layers_3_up_union) - processed_pixels
+        if main_boundary_contour is not None:
+            pixels_inside = {p for p in pixels_to_process if
+                             cv2.pointPolygonTest(main_boundary_contour, tuple(map(float, p)), False) >= 0}
+            pixels_outside = pixels_to_process - pixels_inside
+            spilled_pixels_to_reprocess.update(pixels_outside)
+            pixels_to_process = pixels_inside
+            print(
+                f"  - Layer 2: Filtered out {len(pixels_outside)} pixels. Processing {len(pixels_inside)} inside pixels.")
+        sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image))
         final_draw_order.extend(sorted_pixels);
         processed_pixels.update(map(tuple, sorted_pixels))
-        print(f"  -> Added {len(sorted_pixels)} unique pixels from (Layer 2 - Layers >= 3).")
     else:
         print("  -> Layer 2 not found, skipping.")
 
     print("\nStep 4: Processing remaining pixels...")
-    all_visible_pixels = set()
-    if pixel_art_image.shape[2] == 4:
-        ys, xs = np.where(pixel_art_image[:, :, 3] > 0)
-        all_visible_pixels = set(zip(xs, ys))
-    else:
-        all_visible_pixels = set((x, y) for x in range(width) for y in range(height))
-
-    pixels = all_visible_pixels - processed_pixels
-    sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels, pixel_art_image))
+    all_visible_pixels = set(zip(*np.where(pixel_art_image[:, :, 3] > 0)[::-1])) if pixel_art_image.shape[
+                                                                                        2] == 4 else set(
+        (x, y) for x in range(width) for y in range(height))
+    pixels_to_process = all_visible_pixels - processed_pixels
+    print(f"  -> Re-including {len(spilled_pixels_to_reprocess)} pixels from layers 2+ that were outside the boundary.")
+    pixels_to_process.update(spilled_pixels_to_reprocess)
+    sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image))
     final_draw_order.extend(sorted_pixels)
-    print(f"  -> Added {len(sorted_pixels)} unique pixels from the rest of the image.")
+    print(f"  -> Added {len(sorted_pixels)} unique pixels in the final step.")
 
     print(f"\n--- Phase C: Saving Output ---")
     print(f"Total pixels in final draw order: {len(final_draw_order)}")

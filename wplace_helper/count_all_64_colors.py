@@ -158,15 +158,10 @@ def count_colors_in_image(input_path, output_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="统计已转换图像中的WPlace颜色数量（含ID）并导出为CSV (v3)。",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    parser.add_argument("input_image", help="输入的已转换图像文件路径 (如.png)。")
-    parser.add_argument("output_csv", help="输出的统计结果.csv文件路径。")
+    INPUT = r'E:\共享\dst\726\726_12_modified_converted_merged.png'
+    OUTPUT = r'E:\共享\dst\726\726_12_modified_converted_merged.csv'
 
-    args = parser.parse_args()
-    count_colors_in_image(args.input_image, args.output_csv)
+    count_colors_in_image(INPUT, OUTPUT)
 
 
 if __name__ == "__main__":

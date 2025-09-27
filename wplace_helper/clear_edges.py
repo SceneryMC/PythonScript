@@ -3,10 +3,10 @@ from PIL import Image
 # --- 配置项 ---
 
 # 输入您的原始像素画文件名
-INPUT_FILENAME = r"E:\共享\dst\123713790_p3\123713790_p3_modified_converted.png"
+INPUT_FILENAME = r"E:\共享\dst\726\726_12_modified_converted.png"
 
 # 处理后保存的文件名
-OUTPUT_FILENAME = r"E:\共享\dst\123713790_p3\123713790_p3_modified_converted_cleared.png"
+OUTPUT_FILENAME = r"E:\共享\dst\726\726_12_modified_converted_cleared.png"
 
 # --- 颜色判断的精细调整 ---
 
@@ -74,8 +74,8 @@ def remove_unwanted_edges(input_path, output_path):
 
     print(f"正在分析图像 '{input_path}' ({width}x{height})...")
 
-    for y in range(height):
-        for x in range(width):
+    for y in range(1, height - 1):
+        for x in range(1, width - 1):
             r, g, b, a = pixels[x, y]
 
             # 首先，完全跳过透明的像素

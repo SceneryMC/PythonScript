@@ -9,13 +9,13 @@ import os
 # ========================================================================
 
 # 必需：您之前生成的、包含绘制顺序的JSON文件路径
-ORDER_JSON_PATH = "wplacer_draw_order.json"
+ORDER_JSON_PATH = "wplacer_draw_order_175822732_new.json"
 
 # 必需：您的像素画原图的路径 (用于获取真实颜色)
-PIXEL_ART_PATH = "dst/9148c828bis91/9148c828bis91_converted.png"
+PIXEL_ART_PATH = "dst/175822732/175822732_converted.png"
 
 # 必需：最终生成的视频文件的输出路径
-OUTPUT_VIDEO_PATH = "final_drawing_visualization.mp4"
+OUTPUT_VIDEO_PATH = "final_drawing_visualization_175822732_new.mp4"
 
 # 可选：视频的帧率 (Frames Per Second)
 FPS = 60

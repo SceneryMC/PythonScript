@@ -9,7 +9,7 @@ import os
 # ========================================================================
 
 # 必需：输入你想可视化的模板的完整名称
-TEMPLATE_NAME_TO_VISUALIZE = "123713790_p3_modified_converted_cleared"
+TEMPLATE_NAME_TO_VISUALIZE = "726_12_modified_converted_merged"
 
 # 可选：视频的帧率 (Frames Per Second)
 FPS = 60
