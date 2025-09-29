@@ -3,10 +3,10 @@ from PIL import Image
 # --- 配置项 ---
 
 # 输入您的原始像素画文件名
-INPUT_FILENAME = r"E:\共享\dst\726\726_12_modified_converted.png"
+INPUT_FILENAME = r"E:\共享\dst\00000-3494321294\00000-3494321294_modified_converted_cleared.png"
 
 # 处理后保存的文件名
-OUTPUT_FILENAME = r"E:\共享\dst\726\726_12_modified_converted_cleared.png"
+OUTPUT_FILENAME = r"E:\共享\dst\00000-3494321294\00000-3494321294_modified_converted_cleared.png"
 
 # --- 颜色判断的精细调整 ---
 
@@ -52,9 +52,11 @@ def is_safe_color(r, g, b):
     saturation = (max_val - min_val) / max_val
     if saturation < SATURATION_THRESHOLD:
         return True
+    if max_val == g:
+        return False
 
     # 如果以上安全条件都不满足，说明这是一个需要从边缘移除的彩色。
-    return False
+    return True
 
 
 def remove_unwanted_edges(input_path, output_path):
@@ -102,7 +104,7 @@ def remove_unwanted_edges(input_path, output_path):
     print(f"找到了 {len(pixels_to_remove)} 个需要移除的边缘像素，正在处理...")
 
     for x, y in pixels_to_remove:
-        pixels[x, y] = (0, 0, 0, 255)
+        pixels[x, y] = (0, 0, 0, 0)
 
     img.save(output_path)
     print(f"处理完成！图像已保存为 '{output_path}'。")

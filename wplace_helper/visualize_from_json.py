@@ -4,12 +4,14 @@ import imageio
 import json
 import os
 
+from wplace_helper.utils import create_video_visualization_real
+
 # ========================================================================
 # >> SETTINGS: 在这里修改你的配置 <<
 # ========================================================================
 
 # 必需：您之前生成的、包含绘制顺序的JSON文件路径
-ORDER_JSON_PATH = "wplacer_draw_order_175822732_new.json"
+ORDER_JSON_PATH = "wplacer_draw_order_try/175822732.json"
 
 # 必需：您的像素画原图的路径 (用于获取真实颜色)
 PIXEL_ART_PATH = "dst/175822732/175822732_converted.png"
@@ -23,70 +25,6 @@ FPS = 60
 
 # 可选：每一帧绘制多少个像素。数值越大，视频越短。
 PIXELS_PER_FRAME = 500
-
-
-# ========================================================================
-# >> 视频生成函数 (来自之前的版本，稍作加固) <<
-# ========================================================================
-
-def create_video_visualization_real(pixels_ordered, template_image, output_filename, fps, pixels_per_frame):
-    """
-    将排序后的像素列表，以其“真实颜色”在白色背景上逐步绘制，并生成MP4视频。
-    """
-    print(f"\n--- Generating MP4 Animation with Real Colors ---")
-    print(f"FPS: {fps}, Pixels per Frame: {pixels_per_frame}")
-
-    height, width, _ = template_image.shape
-
-    # 创建白色背景画布
-    canvas = np.full((height, width, 3), 255, dtype=np.uint8)
-
-    total_pixels = len(pixels_ordered)
-    if total_pixels == 0:
-        print("Warning: No pixels in the order list. Saving a 1-second static white video.")
-        # [FIX] 正确处理空像素列表，生成一个有效的1秒视频
-        frame_rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-        with imageio.get_writer(output_filename, fps=fps, codec='libx264', quality=8, pixelformat='yuv420p') as writer:
-            for _ in range(fps):  # 写入1秒的帧 (fps * 1)
-                writer.append_data(frame_rgb)
-        return
-
-    with imageio.get_writer(
-            output_filename,
-            fps=fps,
-            codec='libx264',
-            quality=8,
-            pixelformat='yuv420p'
-    ) as writer:
-        num_frames = (total_pixels + pixels_per_frame - 1) // pixels_per_frame
-        print(f"Total frames to generate: {num_frames}")
-
-        frame_counter = 0
-        for i in range(0, total_pixels, pixels_per_frame):
-            frame_counter += 1
-            if frame_counter > 1 and frame_counter % 100 == 0:
-                print(f"  Encoding frame {frame_counter} / {num_frames}...")
-
-            pixels_in_this_frame = pixels_ordered[i: i + pixels_per_frame]
-
-            for x, y in pixels_in_this_frame:
-                # 从原始模板图像中获取该像素的真实颜色 (BGR格式)
-                pixel_color = template_image[y, x]
-                # 通过切片[:3]来处理RGB和RGBA两种情况，确保只取颜色通道
-                real_color_bgr = pixel_color[:3]
-                # 在我们的白色画布上，用真实颜色填充像素
-                canvas[y, x] = real_color_bgr
-
-            # 将OpenCV的BGR帧转换为imageio需要的RGB帧
-            frame_rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-            writer.append_data(frame_rgb)
-
-        # [可选] 在视频末尾添加一个暂停帧，以便更好地欣赏最终结果
-        print("  Adding a 2-second pause at the end...")
-        for _ in range(fps * 2):
-            writer.append_data(frame_rgb)
-
-    print(f"\nSuccessfully saved MP4 animation to '{output_filename}'")
 
 
 # ========================================================================

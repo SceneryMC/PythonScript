@@ -7,6 +7,8 @@ import numpy as np
 import functools
 from PIL import Image  # Pillow库用于GIF生成
 
+from wplace_helper.utils import create_video_visualization_real
+
 # --- 配置项 ---
 # 1. 原始模板文件名：您带颜色和透明背景的模板PNG
 ORIGINAL_TEMPLATE_FILENAME = "dst/175822732/175822732_converted.png"
@@ -232,104 +234,6 @@ def run_final_algorithm(pixels):
         final_ordered_pixels.extend(traced_contour)
     return final_ordered_pixels
 
-
-def create_video_visualization(pixels_ordered, shape, output_filename, fps, pixels_per_frame):
-    """使用 imageio 和 ffmpeg 将排序后的像素列表高效地可视化为MP4视频。"""
-    print(f"\n--- Generating MP4 Animation (High Speed) ---")
-    print(f"FPS: {fps}, Pixels per Frame: {pixels_per_frame}")
-
-    height, width, _ = shape
-    canvas = np.zeros((height, width, 3), dtype=np.uint8)
-    total_pixels = len(pixels_ordered)
-
-    if total_pixels == 0:
-        imageio.imwrite(output_filename, canvas)
-        print("No pixels to draw. Saved a static video frame.")
-        return
-
-    # --- [ 核心修正：使用 plugin='ffmpeg' 替代 format='MP4' ] ---
-    # 这会强制 imageio 使用 ffmpeg 插件，该插件能正确理解 fps, codec 等视频参数。
-    with imageio.get_writer(
-            output_filename,
-            fps=fps,
-            codec='libx264',
-            quality=8,
-    ) as writer:
-        # --- [ 修正结束 ] ---
-        num_frames = (total_pixels + pixels_per_frame - 1) // pixels_per_frame
-        print(f"Total frames to generate: {num_frames}")
-
-        frame_counter = 0
-        for i in range(0, total_pixels, pixels_per_frame):
-            frame_counter += 1
-            if frame_counter > 1 and frame_counter % 20 == 0:
-                print(f"  Encoding frame {frame_counter} / {num_frames}...")
-
-            pixels_in_this_frame = pixels_ordered[i: i + pixels_per_frame]
-
-            for j, (x, y) in enumerate(pixels_in_this_frame):
-                progress_index = i + j
-                color_value = int((progress_index / total_pixels) * 255)
-                color_bgr = cv2.applyColorMap(np.array([[color_value]], dtype=np.uint8), cv2.COLORMAP_JET)[0][0]
-                canvas[y, x] = color_bgr
-
-            frame_rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-            writer.append_data(frame_rgb)
-
-    print(f"Successfully saved MP4 animation to '{output_filename}'")
-
-
-def create_video_visualization_real(pixels_ordered, template_image, output_filename, fps, pixels_per_frame):
-    """
-    将排序后的像素列表，以其“真实颜色”在白色背景上逐步绘制，并生成MP4视频。
-    """
-    print(f"\n--- Generating MP4 Animation with Real Colors ---")
-    print(f"FPS: {fps}, Pixels per Frame: {pixels_per_frame}")
-
-    height, width, _ = template_image.shape
-
-    # --- [ 核心修正 1: 创建白色背景画布 ] ---
-    # np.full 创建一个用指定值填充的数组。 (255, 255, 255) 是白色。
-    canvas = np.full((height, width, 3), 255, dtype=np.uint8)
-
-    total_pixels = len(pixels_ordered)
-    if total_pixels == 0:
-        imageio.imwrite(output_filename, canvas, fps=fps)
-        print("No pixels to draw. Saved a static video frame.")
-        return
-
-    with imageio.get_writer(
-            output_filename,
-            fps=fps,
-            codec='libx264',
-            quality=8,
-            pixelformat='yuv420p'
-    ) as writer:
-        num_frames = (total_pixels + pixels_per_frame - 1) // pixels_per_frame
-        print(f"Total frames to generate: {num_frames}")
-
-        frame_counter = 0
-        for i in range(0, total_pixels, pixels_per_frame):
-            frame_counter += 1
-            if frame_counter > 1 and frame_counter % 20 == 0:
-                print(f"  Encoding frame {frame_counter} / {num_frames}...")
-
-            pixels_in_this_frame = pixels_ordered[i: i + pixels_per_frame]
-
-            # --- [ 核心修正 2: 绘制真实颜色 ] ---
-            for x, y in pixels_in_this_frame:
-                # 从原始模板图像中获取该像素的真实颜色 (BGR格式)
-                pixel_color = template_image[y, x]
-                # 通过切片[:3]来处理RGB和RGBA两种情况，确保只取颜色通道
-                real_color_bgr = pixel_color[:3]
-                # 在我们的白色画布上，用真实颜色填充像素
-                canvas[y, x] = real_color_bgr
-
-            # 将OpenCV的BGR帧转换为imageio需要的RGB帧
-            frame_rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-            writer.append_data(frame_rgb)
-
-    print(f"Successfully saved MP4 animation to '{output_filename}'")
 
 # =================== [ 替换结束 ] ===================
 

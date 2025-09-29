@@ -5,6 +5,8 @@ import imageio
 import numpy as np
 import functools
 
+from wplace_helper.utils import create_video_visualization_real
+
 # --- 配置项 ---
 ORIGINAL_TEMPLATE_FILENAME = "dst/9148c828bis91/9148c828bis91_converted.png"
 
@@ -184,35 +186,6 @@ def run_final_algorithm_with_hierarchy(pixels_set, template_image):
     return final_ordered_pixels
 
 
-# =================== [ 函数结束 ] ===================
-
-# --- 为了完整性，附上视频生成函数 ---
-def create_video_visualization(pixels_ordered, shape, output_filename, fps, pixels_per_frame):
-    print(f"\n--- Generating MP4 Animation ---")
-    height, width, _ = shape
-    canvas = np.zeros((height, width, 3), dtype=np.uint8)
-    total_pixels = len(pixels_ordered)
-    print(total_pixels)
-    if total_pixels == 0: imageio.imwrite(output_filename, canvas, fps=fps); return
-    with imageio.get_writer(output_filename, fps=fps, codec='libx264', quality=8, pixelformat='yuv420p') as writer:
-        num_frames = (total_pixels + pixels_per_frame - 1) // pixels_per_frame
-        print(f"Total frames to generate: {num_frames}")
-        frame_counter = 0
-        for i in range(0, total_pixels, pixels_per_frame):
-            frame_counter += 1
-            if frame_counter > 1 and frame_counter % 20 == 0: print(
-                f"  Encoding frame {frame_counter} / {num_frames}...")
-            pixels_in_this_frame = pixels_ordered[i: i + pixels_per_frame]
-            for j, (x, y) in enumerate(pixels_in_this_frame):
-                progress_index = i + j
-                color_value = int((progress_index / total_pixels) * 255)
-                color_bgr = cv2.applyColorMap(np.array([[color_value]], dtype=np.uint8), cv2.COLORMAP_JET)[0][0]
-                canvas[y, x] = color_bgr
-            frame_rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-            writer.append_data(frame_rgb)
-    print(f"Successfully saved MP4 animation to '{output_filename}'")
-
-
 if __name__ == "__main__":
     try:
         # 1. 准备融合后的轮廓像素，同时返回原始模板图像
@@ -222,7 +195,7 @@ if __name__ == "__main__":
         ordered_pixels = run_final_algorithm_with_hierarchy(fused_pixels_set, template_image)
 
         # 3. 生成视频
-        create_video_visualization(ordered_pixels, template_image.shape, OUTPUT_FILENAME, VIDEO_FPS, PIXELS_PER_FRAME)
+        create_video_visualization_real(ordered_pixels, template_image, OUTPUT_FILENAME, VIDEO_FPS, PIXELS_PER_FRAME)
         export_order_to_json(ordered_pixels, JSON_OUTPUT_FILENAME)
 
         print("\n--- Hierarchical Merged Visualization Complete ---")

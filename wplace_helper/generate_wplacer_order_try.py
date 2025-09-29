@@ -11,6 +11,8 @@ from collections import deque
 from numba import njit
 from scipy.spatial import distance as dist
 
+from wplace_helper.utils import WPLACE_COLOR_PALETTE, DEFAULT_FREE_COLORS
+
 # ========================================================================
 # >> SETTINGS <<
 # ========================================================================
@@ -475,26 +477,70 @@ def sort_single_region_contiguously(region_coords):
     return final_path
 
 
-def sort_and_flatten_regions(regions_by_color):
+# (在您的脚本中找到并替换这个函数)
+
+def sort_and_flatten_regions(regions_by_color, default_free_colors):
+    """
+    [已重构] 对区域进行排序和扁平化，实现“付费颜色优先”的逻辑。
+
+    Args:
+        regions_by_color (dict): 按颜色分组的区域字典。
+        default_free_colors (set): 包含所有免费颜色名称的集合。
+    """
     final_order = []
-    color_pixel_counts = {color: sum(len(region) for region in regions) for color, regions in regions_by_color.items()}
-    sorted_colors = sorted(color_pixel_counts, key=color_pixel_counts.get, reverse=True)
-    for color in sorted_colors:
-        regions = regions_by_color[color]
+
+    # --- 步骤1: 创建一个包含完整信息的颜色列表 ---
+    color_info_list = []
+
+    # 获取WPlace调色板的名称映射，以便判断颜色是否付费
+    # (假设 WPLACE_COLOR_PALETTE 在全局作用域可用)
+    rgb_to_name_map = {tuple(c['rgb']): c['name'] for c in WPLACE_COLOR_PALETTE}
+
+    for color_rgb, regions in regions_by_color.items():
+        # 将 (b, g, r) 转为 (r, g, b) 以匹配调色板
+        r, g, b = color_rgb[2], color_rgb[1], color_rgb[0]
+        color_name = rgb_to_name_map.get((r, g, b), "Unknown Color")
+
+        is_paid = color_name not in default_free_colors
+        total_pixels = sum(len(region) for region in regions)
+
+        color_info_list.append({
+            "color_rgb": color_rgb,
+            "total_pixels": total_pixels,
+            "is_paid": is_paid
+        })
+
+    # --- 步骤2: 执行两阶段排序 ---
+    # 首先按 is_paid 降序 (True 在前), 然后按 total_pixels 降序
+    sorted_color_info = sorted(
+        color_info_list,
+        key=lambda x: (x['is_paid'], x['total_pixels']),
+        reverse=True
+    )
+
+    print("\n  -> Applying 'Paid First' sorting strategy:")
+
+    # --- 步骤3: 按新的颜色顺序处理区域 ---
+    for color_info in sorted_color_info:
+        color_rgb = color_info['color_rgb']
+        regions = regions_by_color[color_rgb]
+
+        paid_status = "Paid" if color_info['is_paid'] else "Free"
+        print(f"    - Processing {paid_status} color {color_rgb} with {color_info['total_pixels']} pixels...")
+
+        # 在每个颜色组内部，仍然按区域大小降序处理
         regions.sort(key=len, reverse=True)
+
         for region in regions:
-            final_order.extend(sort_single_region_contiguously(region))
+            # 内部的排序算法保持不变
+            sorted_region_pixels = sort_single_region_contiguously(region)
+            final_order.extend(sorted_region_pixels)
+
     return final_order
 
 
 # ========================================================================
 # >> 主执行逻辑 <<
-# ========================================================================
-# ========================================================================
-# >> 主执行逻辑 (已修正) <<
-# ========================================================================
-# ========================================================================
-# >> 主执行逻辑 (已修正) <<
 # ========================================================================
 def main():
     print("--- WPlacer Draw Order Generator ---")
@@ -618,7 +664,7 @@ def main():
             pixels_to_process = pixels_inside
             print(
                 f"  - Layer {num}: Filtered out {len(pixels_outside)} pixels. Processing {len(pixels_inside)} inside pixels.")
-        sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image))
+        sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image), DEFAULT_FREE_COLORS)
         final_draw_order.extend(sorted_pixels);
         processed_pixels.update(map(tuple, sorted_pixels))
 
@@ -634,7 +680,7 @@ def main():
             pixels_to_process = pixels_inside
             print(
                 f"  - Layer 2: Filtered out {len(pixels_outside)} pixels. Processing {len(pixels_inside)} inside pixels.")
-        sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image))
+        sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image), DEFAULT_FREE_COLORS)
         final_draw_order.extend(sorted_pixels);
         processed_pixels.update(map(tuple, sorted_pixels))
     else:
@@ -647,7 +693,7 @@ def main():
     pixels_to_process = all_visible_pixels - processed_pixels
     print(f"  -> Re-including {len(spilled_pixels_to_reprocess)} pixels from layers 2+ that were outside the boundary.")
     pixels_to_process.update(spilled_pixels_to_reprocess)
-    sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image))
+    sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image), DEFAULT_FREE_COLORS)
     final_draw_order.extend(sorted_pixels)
     print(f"  -> Added {len(sorted_pixels)} unique pixels in the final step.")
 

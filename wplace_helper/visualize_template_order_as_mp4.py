@@ -4,6 +4,8 @@ import numpy as np
 import imageio
 import os
 
+from wplace_helper.utils import create_video_visualization_real
+
 # ========================================================================
 # >> SETTINGS: 在这里修改你的配置 <<
 # ========================================================================
@@ -47,40 +49,6 @@ for rgb_string, color_id in PALETTE.items():
 WHITE_COLOR = (255, 255, 255)
 REVERSE_PALETTE[0] = WHITE_COLOR
 REVERSE_PALETTE[-1] = WHITE_COLOR
-
-
-# ========================================================================
-# >> 您提供的视频生成函数 (保持不变) <<
-# ========================================================================
-
-def create_video_visualization_real(pixels_ordered, template_image, output_filename, fps, pixels_per_frame):
-    print(f"\n--- Generating MP4 Animation with Real Colors ---")
-    print(f"FPS: {fps}, Pixels per Frame: {pixels_per_frame}")
-    height, width, _ = template_image.shape
-    canvas = np.full((height, width, 3), 255, dtype=np.uint8)
-    total_pixels = len(pixels_ordered)
-    if total_pixels == 0:
-        print("No pixels to draw. Saving a static video frame.")
-        frame_rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-        with imageio.get_writer(output_filename, fps=fps, codec='libx264', quality=8, pixelformat='yuv420p') as writer:
-            for _ in range(fps): writer.append_data(frame_rgb)
-        return
-    with imageio.get_writer(output_filename, fps=fps, codec='libx264', quality=8, pixelformat='yuv420p') as writer:
-        num_frames = (total_pixels + pixels_per_frame - 1) // pixels_per_frame
-        print(f"Total frames to generate: {num_frames}")
-        frame_counter = 0
-        for i in range(0, total_pixels, pixels_per_frame):
-            frame_counter += 1
-            if frame_counter > 1 and frame_counter % 50 == 0: print(
-                f"  Encoding frame {frame_counter} / {num_frames}...")
-            pixels_in_this_frame = pixels_ordered[i: i + pixels_per_frame]
-            for x, y in pixels_in_this_frame:
-                pixel_color = template_image[y, x]
-                real_color_bgr = pixel_color[:3]
-                canvas[y, x] = real_color_bgr
-            frame_rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-            writer.append_data(frame_rgb)
-    print(f"\nSuccessfully saved MP4 animation to '{output_filename}'")
 
 
 # ========================================================================
