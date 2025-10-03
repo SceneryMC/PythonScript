@@ -90,8 +90,8 @@ def count_colors_in_image(input_path, output_path):
 
 
 def main():
-    INPUT = r'E:\共享\dst\726\726_12_modified_converted_merged.png'
-    OUTPUT = r'E:\共享\dst\726\726_12_modified_converted_merged.csv'
+    INPUT = r'dst/779706d9f9/779706d9f9_converted.png'
+    OUTPUT = r'dst/779706d9f9/779706d9f9_converted.csv'
 
     count_colors_in_image(INPUT, OUTPUT)
 

@@ -11,13 +11,13 @@ from wplace_helper.utils import create_video_visualization_real
 # ========================================================================
 
 # 必需：您之前生成的、包含绘制顺序的JSON文件路径
-ORDER_JSON_PATH = "wplacer_draw_order_try/175822732.json"
+ORDER_JSON_PATH = "wplacer_draw_order_try/00000-3494321294-repaired.json"
 
 # 必需：您的像素画原图的路径 (用于获取真实颜色)
-PIXEL_ART_PATH = "dst/175822732/175822732_converted.png"
+PIXEL_ART_PATH = "dst/00000-3494321294-repaired/00000-3494321294_modified_unsensored_repaired_converted.png"
 
 # 必需：最终生成的视频文件的输出路径
-OUTPUT_VIDEO_PATH = "visualize_from_json/175822732_new.mp4"
+OUTPUT_VIDEO_PATH = "visualize_from_json/00000-3494321294-repaired.mp4"
 os.makedirs('visualize_from_json', exist_ok=True)
 
 # 可选：视频的帧率 (Frames Per Second)

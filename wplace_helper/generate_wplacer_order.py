@@ -12,9 +12,9 @@ from numba import njit
 # ========================================================================
 # >> SETTINGS <<
 # ========================================================================
-PSD_FILE_PATH = "dst/175822732/175822732_undithered_backup.psd"
-PIXEL_ART_PATH = "dst/175822732/175822732_converted.png"
-OUTPUT_JSON_PATH = "wplacer_draw_order/175822732.json"
+PSD_FILE_PATH = "dst/779706d9f9/779706d9f9_undithered.psd"
+PIXEL_ART_PATH = "dst/779706d9f9/779706d9f9_converted.png"
+OUTPUT_JSON_PATH = "wplacer_draw_order/779706d9f9.json"
 os.makedirs('wplacer_draw_order', exist_ok=True)
 
 

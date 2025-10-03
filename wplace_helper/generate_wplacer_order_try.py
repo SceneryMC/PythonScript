@@ -7,7 +7,7 @@ from psd_tools import PSDImage
 from psd_tools.psd.image_resources import ImageResource, Resource
 from psd_tools.psd.vector import Path, Subpath, Knot
 from io import BytesIO
-from collections import deque
+from collections import deque, Counter
 from numba import njit
 from scipy.spatial import distance as dist
 
@@ -16,15 +16,15 @@ from wplace_helper.utils import WPLACE_COLOR_PALETTE, DEFAULT_FREE_COLORS
 # ========================================================================
 # >> SETTINGS <<
 # ========================================================================
-PSD_FILE_PATH = "dst/175822732/175822732_undithered_backup.psd"
-PIXEL_ART_PATH = "dst/175822732/175822732_converted.png"
-UNDITHERED_PIXEL_ART_PATH = "dst/175822732/175822732_undithered.png"
-OUTPUT_JSON_PATH = "wplacer_draw_order_try/175822732.json"
+PSD_FILE_PATH = "dst/00000-3494321294-repaired/00000-3494321294_modified_unsensored_repaired_undithered.psd"
+PIXEL_ART_PATH = "dst/00000-3494321294-repaired/00000-3494321294_modified_unsensored_repaired_converted.png"
+UNDITHERED_PIXEL_ART_PATH = "dst/00000-3494321294-repaired/00000-3494321294_modified_unsensored_repaired_undithered.png"
+OUTPUT_JSON_PATH = "wplacer_draw_order_try/00000-3494321294-repaired.json"
 OUTPUT_VISUALIZATION_PATH = "wplacer_draw_order_try/path_visualization.png"
 os.makedirs('wplacer_draw_order_try', exist_ok=True)
 
 # 路径处理参数
-NUM_OUTLINE_PATHS = 5
+NUM_OUTLINE_PATHS = 6
 
 # [已修改] 算法参数
 NEIGHBOUR_RANGE = 4  # 用于计算颜色平均值的大邻域范围 (e.g., 19x19)
@@ -44,6 +44,64 @@ ENABLE_POST_INTERPOLATION = True
 # ========================================================================
 # >> 辅助函数 <<
 # ========================================================================
+
+def find_transparent_pixels(
+        pixel_collection: (list[tuple[int, int]] | set[tuple[int, int]]),
+        pixel_art_image: np.ndarray,
+        collection_name: str = "Unnamed Collection"
+) -> list[tuple[int, int]]:
+    """
+    一个调试工具函数，用于检查给定的像素集合中哪些像素是透明的。
+
+    Args:
+        pixel_collection: 包含(x, y)坐标的列表或集合。
+        pixel_art_image: 带有Alpha通道的源图像 (NumPy数组)。
+        collection_name: (可选) 用于在打印输出中标识该集合的名称。
+
+    Returns:
+        一个列表，包含所有在源图像中是透明的像素坐标。
+        如果图像没有Alpha通道或没有找到透明像素，则返回空列表。
+    """
+    print(f"\n--- 🕵️  Debugging: Checking '{collection_name}' for transparent pixels ---")
+
+    # 1. 检查图像是否有Alpha通道
+    height, width, channels = pixel_art_image.shape
+    if channels < 4:
+        print("  - 图像没有Alpha通道，无法进行透明度检查。跳过。")
+        return []
+
+    alpha_channel = pixel_art_image[:, :, 3]
+    transparent_pixels_found = []
+
+    # 2. 遍历集合中的每个像素
+    for p in pixel_collection:
+        # 确保坐标是元组格式
+        px, py = tuple(p)
+
+        # 边界检查
+        if not (0 <= px < width and 0 <= py < height):
+            print(f"  - 警告: 坐标 {p} 超出图像边界，跳过。")
+            continue
+
+        # 3. 检查Alpha值
+        # Alpha值为0被认为是完全透明
+        if alpha_channel[py, px] == 0:
+            transparent_pixels_found.append(p)
+
+    # 4. 报告结果
+    if transparent_pixels_found:
+        print(f"  - ❌ Found {len(transparent_pixels_found)} transparent pixels in '{collection_name}'.")
+        # 只打印前10个以避免刷屏
+        for i, p in enumerate(transparent_pixels_found):
+            if i >= 10:
+                print("    - ... and more.")
+                break
+            print(f"    - Transparent pixel at: {p}")
+    else:
+        print(f"  - ✅ No transparent pixels found in '{collection_name}'.")
+
+    return transparent_pixels_found
+
 
 class NumpyJSONEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -308,88 +366,137 @@ def extrapolate_inner_path_points(
     return extrapolated_path, moved_indices
 
 
-def refine_outline_path(path_from_stage1, moved_indices_from_stage1, outline_contour, undithered_image):
+def refine_outline_path(
+        path_from_stage1: list[tuple[int, int]],
+        moved_indices_from_stage1: set[int],
+        outline_contour: np.ndarray,
+        undithered_image: np.ndarray,
+        pixel_art_image: np.ndarray
+) -> list[tuple[int, int]]:
     """
-    [阶段二] 内推修正。
-    [已重构] 使用 NEIGHBOUR_RANGE 感知环境，使用 ERROR_BOUND 查找候选点。
+    [阶段二 - 最终优化版] 内推修正。
+    在构建候选列表时，就提前排除了所有透明像素。
     """
-    print("\n--- Main Correction (Stage 2): Refining Outline Path ---")
+    print("\n--- Main Correction (Stage 2): Refining Outline Path (with Proactive Transparency Filter) ---")
     height, width, _ = undithered_image.shape
     lab_undithered_image = cv2.cvtColor(undithered_image, cv2.COLOR_BGR2LAB)
+
+    channels = pixel_art_image.shape[2]
+    alpha_channel = pixel_art_image[:, :, 3] if channels == 4 else None
+
     corrected_path, corrected_count = [], 0
     total_pixels = len(path_from_stage1)
+
     for i, p in enumerate(path_from_stage1):
         if i in moved_indices_from_stage1:
-            corrected_path.append(p);
+            corrected_path.append(p)
             continue
+
+        # ... (前半部分的颜色比较逻辑完全不变) ...
         px, py = p
         if (i + 1) % 500 == 0: print(f"  - Refining pixel {i + 1}/{total_pixels}...")
-
-        # [修改] 1. 使用大的 NEIGHBOUR_RANGE 定义感知邻域
         y_min, y_max = max(0, py - NEIGHBOUR_RANGE), min(height, py + NEIGHBOUR_RANGE + 1)
         x_min, x_max = max(0, px - NEIGHBOUR_RANGE), min(width, px + NEIGHBOUR_RANGE + 1)
-        outside_coords = [
-            (x, y) for y in range(y_min, y_max) for x in range(x_min, x_max)
-            if cv2.pointPolygonTest(outline_contour, (x, y), False) < 0
-        ]
+        outside_coords = [(x, y) for y in range(y_min, y_max) for x in range(x_min, x_max) if
+                          cv2.pointPolygonTest(outline_contour, (x, y), False) < 0]
         if not outside_coords:
             corrected_path.append(p);
             continue
-
-        # 2. 计算外部平均色
         avg_outside_lab = np.mean([lab_undithered_image[y, x] for x, y in outside_coords], axis=0)
-
-        # 3. 判断当前点是否为毛刺
         if color_difference(lab_undithered_image[py, px], avg_outside_lab) > COLOR_SIMILARITY_THRESHOLD:
             corrected_path.append(p);
             continue
 
-        # --- [核心修改] 4. 如果是毛刺，在小的 ERROR_BOUND 范围内查找候选点 ---
+        # --- [ 核心修正点：在源头过滤 ] ---
+
+        # 1. 像以前一样，在 ERROR_BOUND 范围内找到所有几何上是“内部”的候选点
         cand_y_min, cand_y_max = max(0, py - ERROR_BOUND), min(height, py + ERROR_BOUND + 1)
         cand_x_min, cand_x_max = max(0, px - ERROR_BOUND), min(width, px + ERROR_BOUND + 1)
+        candidate_pool = [(x, y) for y in range(cand_y_min, cand_y_max) for x in range(cand_x_min, cand_x_max) if
+                          cv2.pointPolygonTest(outline_contour, (x, y), False) >= 0]
 
-        candidate_pool = [
-            (x, y) for y in range(cand_y_min, cand_y_max) for x in range(cand_x_min, cand_x_max)
-            if cv2.pointPolygonTest(outline_contour, (x, y), False) >= 0
-        ]
+        # 2. 现在，创建一个只包含“有效”候选点的列表
+        valid_candidates = []
+        for c in candidate_pool:
+            cx, cy = c
 
-        valid_candidates = [
-            c for c in candidate_pool
-            if color_difference(lab_undithered_image[c[1], c[0]], avg_outside_lab) >= COLOR_SIMILARITY_THRESHOLD
-        ]
+            # 条件a: 颜色必须与外部不同 (旧逻辑)
+            color_is_valid = color_difference(lab_undithered_image[cy, cx],
+                                              avg_outside_lab) >= COLOR_SIMILARITY_THRESHOLD
+            if not color_is_valid:
+                continue
+
+            # 条件b: 像素必须是非透明的 (新逻辑)
+            pixel_is_opaque = True
+            if alpha_channel is not None and alpha_channel[cy, cx] == 0:
+                pixel_is_opaque = False
+
+            # 只有同时满足两个条件，才被认为是有效候选点
+            if pixel_is_opaque:
+                valid_candidates.append(c)
+
+        # ------------------------------------
 
         if valid_candidates:
+            # 从这个已经“净化”过的列表中选择最近的点
             distances = [dist.euclidean(p, cand) for cand in valid_candidates]
             best_candidate = valid_candidates[np.argmin(distances)]
-            corrected_path.append(best_candidate);
+            corrected_path.append(best_candidate)
             corrected_count += 1
         else:
-            # 如果在小范围内找不到，则放弃修正
+            # 如果找不到任何有效的（颜色正确且非透明）候选点，则保留原始点
             corrected_path.append(p)
 
-    print(f"  -> Path refinement complete. Corrected {corrected_count} outlier pixels (excluding locked points).")
+    print(f"  -> Path refinement complete. Corrected {corrected_count} valid pixels.")
     return corrected_path
 
 
-def interpolate_path_gaps(path: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    """[阶段三] 遍历路径，通过线性插值填补不连续的像素点。"""
-    print("\n--- Post-correction (Stage 3): Interpolating Gaps ---")
+def interpolate_path_gaps(path: list[tuple[int, int]], pixel_art_image: np.ndarray) -> list[tuple[int, int]]:
+    """
+    [阶段三 - 已修正] 遍历路径，通过线性插值填补不连续的像素点，
+    并确保所有插值点都落在非透明区域。
+    """
+    print("\n--- Post-correction (Stage 3): Interpolating Gaps with Transparency Check ---")
     if len(path) < 2: return path
-    continuous_path, pixels_added = [path[0]], 0
+
+    # 提取Alpha通道以供检查
+    height, width, channels = pixel_art_image.shape
+    if channels < 4:
+        print("  - 警告: 图像无Alpha通道，无法进行透明度检查。将跳过插值。")
+        return path
+    alpha_channel = pixel_art_image[:, :, 3]
+
+    continuous_path, pixels_added, pixels_skipped = [path[0]], 0, 0
+
     for i in range(1, len(path)):
         p1, p2 = path[i - 1], path[i]
         dist_val = max(abs(p1[0] - p2[0]), abs(p1[1] - p2[1]))
+
         if dist_val > 1:
             num_steps = int(dist_val)
-            x_vals, y_vals = np.linspace(p1[0], p2[0], num_steps + 1), np.linspace(p1[1], p2[1], num_steps + 1)
+            x_vals = np.linspace(p1[0], p2[0], num_steps + 1)
+            y_vals = np.linspace(p1[1], p2[1], num_steps + 1)
+
             for step in range(1, num_steps):
                 interp_point = (int(round(x_vals[step])), int(round(y_vals[step])))
-                if interp_point != continuous_path[-1]:
-                    continuous_path.append(interp_point);
-                    pixels_added += 1
+
+                # --- [ 核心修改 ] ---
+                # 在添加之前，检查该点的Alpha值
+                # 确保坐标在图像范围内
+                if (0 <= interp_point[1] < height and 0 <= interp_point[0] < width and
+                        alpha_channel[interp_point[1], interp_point[0]] > 0):
+
+                    if interp_point != continuous_path[-1]:
+                        continuous_path.append(interp_point)
+                        pixels_added += 1
+                else:
+                    pixels_skipped += 1  # 记录跳过的透明点
+
         if p2 != continuous_path[-1]:
             continuous_path.append(p2)
-    print(f"  -> Interpolation complete. Added {pixels_added} pixels to ensure path continuity.")
+
+    print(
+        f"  -> Interpolation complete. Added {pixels_added} valid pixels. Skipped {pixels_skipped} transparent pixels.")
     return continuous_path
 
 
@@ -548,7 +655,7 @@ def main():
         psd = PSDImage.open(PSD_FILE_PATH)
         pixel_art_image = cv2.imread(PIXEL_ART_PATH, cv2.IMREAD_UNCHANGED)
         undithered_image = cv2.imread(UNDITHERED_PIXEL_ART_PATH)
-        height, width, _ = pixel_art_image.shape
+        height, width, channels = pixel_art_image.shape
     except Exception as e:
         print(f"Error loading files: {e}"); return
 
@@ -577,12 +684,15 @@ def main():
                                                                              undithered_image)
         else:
             extrapolated_path = initial_pixels
-        refined_path = refine_outline_path(extrapolated_path, moved_indices, initial_outline_contour, undithered_image)
-        final_path = interpolate_path_gaps(refined_path) if ENABLE_POST_INTERPOLATION else refined_path
+        refined_path = refine_outline_path(extrapolated_path, moved_indices, initial_outline_contour, undithered_image, pixel_art_image)
+        final_path = interpolate_path_gaps(refined_path, pixel_art_image) if ENABLE_POST_INTERPOLATION else refined_path
 
         all_initial_pixels.extend(initial_pixels)
         all_extrapolated_pixels.extend(extrapolated_path)
         all_final_outline_pixels.extend(final_path)
+        find_transparent_pixels(initial_pixels, pixel_art_image)
+        find_transparent_pixels(refined_path, pixel_art_image)
+        find_transparent_pixels(final_path, pixel_art_image)
 
         if i == 0:
             main_boundary_final_path = final_path
@@ -635,6 +745,7 @@ def main():
     unique_step1_pixels = [p for p in filtered_stroke_pixels if
                            tuple(p) not in processed_pixels and (processed_pixels.add(tuple(p)) or True)]
     final_draw_order.extend(unique_step1_pixels)
+    find_transparent_pixels(final_draw_order, pixel_art_image)
     print(f"  -> Added {len(unique_step1_pixels)} unique pixels from all filtered stroke paths.")
 
     # -----------------------------
@@ -656,6 +767,7 @@ def main():
     print(f"\nStep 2: Processing regions from layer 3 upwards ({len(layer_nums_step2)} layers)...")
     for num in layer_nums_step2:
         pixels_to_process = layer_regions.get(num, set()) - processed_pixels
+        find_transparent_pixels(pixels_to_process, pixel_art_image)
         if main_boundary_contour is not None:
             pixels_inside = {p for p in pixels_to_process if
                              cv2.pointPolygonTest(main_boundary_contour, tuple(map(float, p)), False) >= 0}
@@ -666,12 +778,14 @@ def main():
                 f"  - Layer {num}: Filtered out {len(pixels_outside)} pixels. Processing {len(pixels_inside)} inside pixels.")
         sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image), DEFAULT_FREE_COLORS)
         final_draw_order.extend(sorted_pixels);
+        # find_transparent_pixels(final_draw_order, pixel_art_image)
         processed_pixels.update(map(tuple, sorted_pixels))
 
     print("\nStep 3: Processing layer 2 minus regions from step 2...")
     if 2 in layer_regions:
         layers_3_up_union = set().union(*(layer_regions.get(num, set()) for num in layer_nums_step2))
         pixels_to_process = (layer_regions[2] - layers_3_up_union) - processed_pixels
+        find_transparent_pixels(pixels_to_process, pixel_art_image)
         if main_boundary_contour is not None:
             pixels_inside = {p for p in pixels_to_process if
                              cv2.pointPolygonTest(main_boundary_contour, tuple(map(float, p)), False) >= 0}
@@ -682,6 +796,7 @@ def main():
                 f"  - Layer 2: Filtered out {len(pixels_outside)} pixels. Processing {len(pixels_inside)} inside pixels.")
         sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image), DEFAULT_FREE_COLORS)
         final_draw_order.extend(sorted_pixels);
+        # find_transparent_pixels(final_draw_order, pixel_art_image)
         processed_pixels.update(map(tuple, sorted_pixels))
     else:
         print("  -> Layer 2 not found, skipping.")
@@ -693,18 +808,51 @@ def main():
     pixels_to_process = all_visible_pixels - processed_pixels
     print(f"  -> Re-including {len(spilled_pixels_to_reprocess)} pixels from layers 2+ that were outside the boundary.")
     pixels_to_process.update(spilled_pixels_to_reprocess)
+    find_transparent_pixels(pixels_to_process, pixel_art_image)
     sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image), DEFAULT_FREE_COLORS)
     final_draw_order.extend(sorted_pixels)
+    # find_transparent_pixels(final_draw_order, pixel_art_image)
     print(f"  -> Added {len(sorted_pixels)} unique pixels in the final step.")
 
-    print(f"\n--- Phase C: Saving Output ---")
-    print(f"Total pixels in final draw order: {len(final_draw_order)}")
-    try:
-        with open(OUTPUT_JSON_PATH, 'w') as f:
-            json.dump(final_draw_order, f, cls=NumpyJSONEncoder)
-        print(f"Successfully saved the final draw order to '{OUTPUT_JSON_PATH}'")
-    except Exception as e:
-        print(f"Error saving JSON file: {e}")
+    print(f"\n--- Phase C: Verification & Saving Output ---")
+    print("Performing final checks before saving...")
+    if channels == 4:
+        total_opaque_in_source = np.sum(pixel_art_image[:, :, 3] > 0)
+    else:
+        total_opaque_in_source = pixel_art_image.shape[0] * pixel_art_image.shape[1]
+    total_in_final_order = len(final_draw_order)
+    count_ok = (total_in_final_order == total_opaque_in_source)
+    if count_ok:
+        print(f"✅ [Check 1/2] Pixel Count: OK ({total_in_final_order:,} pixels)")
+    else:
+        print(f"❌ [Check 1/2] Pixel Count: FAILED!");
+        print(f"  - Expected: {total_opaque_in_source:,}");
+        print(f"  - Found: {total_in_final_order:,}")
+    order_as_tuples = [tuple(p) for p in final_draw_order]
+    total_unique_in_final_order = len(set(order_as_tuples))
+    duplicates_ok = (total_in_final_order == total_unique_in_final_order)
+    if duplicates_ok:
+        print(f"✅ [Check 2/2] Duplicates: OK (All {total_in_final_order:,} pixels are unique)")
+    else:
+        print(f"❌ [Check 2/2] Duplicates: FAILED!");
+        num_duplicates = total_in_final_order - total_unique_in_final_order;
+        print(f"  - Found {num_duplicates} duplicate entries.")
+        counts = Counter(order_as_tuples);
+        duplicates = {item: count for item, count in counts.items() if count > 1}
+        print(f"  - The following {len(duplicates)} pixel(s) were repeated:")
+        for i, (pixel, count) in enumerate(duplicates.items()):
+            if i >= 10: print("    - ... and more."); break
+            print(f"    - Pixel {pixel} appeared {count} times.")
+    if count_ok and duplicates_ok:
+        print("\n✨ Verification successful! Proceeding to save the output file.")
+        try:
+            with open(OUTPUT_JSON_PATH, 'w') as f:
+                json.dump(final_draw_order, f, cls=NumpyJSONEncoder)
+            print(f"Successfully saved the final draw order to '{OUTPUT_JSON_PATH}'")
+        except Exception as e:
+            print(f"Error saving JSON file: {e}")
+    else:
+        print("\n🛑 Verification failed! The output file will NOT be saved.")
 
 
 if __name__ == "__main__":

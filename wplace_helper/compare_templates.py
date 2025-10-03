@@ -6,10 +6,10 @@ from PIL import Image
 # --- 配置 ---
 
 # 请将'canvas.png'替换为您当前画布上图像的文件名
-CANVAS_IMAGE_PATH = r"C:\Users\13308\nodejsproj\wplacer-lllexxa\data\snapshots\my_nilou_snapshot.png"
+CANVAS_IMAGE_PATH = r"C:\Users\13308\nodejsproj\wplacer-lllexxa\data\snapshots\my_nilou_lying.png"
 
 # 请将'template.png'替换为您新的目标模板图像的文件名
-TEMPLATE_IMAGE_PATH = "dst/726/726_12_modified_converted_merged.png"
+TEMPLATE_IMAGE_PATH = "dst/175822732/175822732_converted_nobg.png"
 
 
 # --- 脚本主逻辑 ---
