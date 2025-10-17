@@ -597,178 +597,160 @@ int_tuple = types.UniTuple(types.int64, 2)
 @njit
 def _jit_generate_adaptive_scan_path(
         pixels_map: np.ndarray,
-        map_offset_x: int,
-        map_offset_y: int,
-        height: int,
-        width: int,
-        base_lookahead: int,
-        lookahead_growth: float
+        map_offset_x: int, map_offset_y: int,
+        height: int, width: int,
+        base_lookahead: int, lookahead_growth: float
 ):
     """
-    [JIT加速版] 核心的自适应扫描绘制逻辑。
-    使用NumPy布尔数组代替set进行超高速查询。
+    [已合并修正] 将核心逻辑和四种策略合并到一个JIT函数中，以避免类型推断错误。
     """
-    # path_top_down 和 path_left_right 必须在这里初始化为 Numba 类型
-    path_top_down = List.empty_list(int_tuple)
-    path_left_right = List.empty_list(int_tuple)
+    all_results = []
 
-    # --- 策略1: 从上到下 ---
-    pixels_map_td = pixels_map.copy()
-    strokes_top_down = 0
-    num_pixels_td = np.sum(pixels_map_td)
+    # --- 策略循环：4种策略 ---
+    for start_mode in range(4):
+        pixels_map_local = pixels_map.copy()
+        path = List.empty_list(int_tuple)
+        strokes = 0
+        num_pixels = np.sum(pixels_map_local)
+        last_pos_local = (-1, -1)
 
-    while num_pixels_td > 0:
-        strokes_top_down += 1
+        while num_pixels > 0:
+            strokes += 1
+            pos_local = (-1, -1)
 
-        # 寻找起点 (Numba中需要手动循环)
-        start_pos_local = (-1, -1)
-        for y in range(height):
-            for x in range(width):
-                if pixels_map_td[y, x]:
-                    start_pos_local = (x, y)
+            # 智能选择起点
+            if last_pos_local[0] == -1:
+                if start_mode == 0:  # TopDown
+                    for y in range(height):
+                        for x in range(width):
+                            if pixels_map_local[y, x]: pos_local = (x, y); break
+                        if pos_local[0] != -1: break
+                elif start_mode == 1:  # LeftRight
+                    for x in range(width):
+                        for y in range(height):
+                            if pixels_map_local[y, x]: pos_local = (x, y); break
+                        if pos_local[0] != -1: break
+                elif start_mode == 2:  # BottomUp
+                    for y in range(height - 1, -1, -1):
+                        for x in range(width):
+                            if pixels_map_local[y, x]: pos_local = (x, y); break
+                        if pos_local[0] != -1: break
+                elif start_mode == 3:  # RightLeft
+                    for x in range(width - 1, -1, -1):
+                        for y in range(height):
+                            if pixels_map_local[y, x]: pos_local = (x, y); break
+                        if pos_local[0] != -1: break
+            else:
+                min_dist_sq = -1;
+                best_next_start = (-1, -1)
+                for y in range(height):
+                    for x in range(width):
+                        if pixels_map_local[y, x]:
+                            dist_sq = (x - last_pos_local[0]) ** 2 + (y - last_pos_local[1]) ** 2
+                            if min_dist_sq == -1 or dist_sq < min_dist_sq:
+                                min_dist_sq = dist_sq;
+                                best_next_start = (x, y)
+                pos_local = best_next_start
+
+            path.append((pos_local[0] + map_offset_x, pos_local[1] + map_offset_y))
+            pixels_map_local[pos_local[1], pos_local[0]] = False
+            num_pixels -= 1
+
+            # 定义当前策略的优先级
+            n_steps = 0
+            if start_mode == 0:  # TopDown
+                h_or_v_pref = (1, 0);
+                main_dir = (0, 1);
+                back_dir = (0, -1)
+            elif start_mode == 1:  # LeftRight
+                h_or_v_pref = (0, 1);
+                main_dir = (1, 0);
+                back_dir = (-1, 0)
+            elif start_mode == 2:  # BottomUp
+                h_or_v_pref = (1, 0);
+                main_dir = (0, -1);
+                back_dir = (0, 1)
+            elif start_mode == 3:  # RightLeft
+                h_or_v_pref = (0, 1);
+                main_dir = (-1, 0);
+                back_dir = (1, 0)
+
+            while True:
+                moved = False
+                direction_prefs = [back_dir, h_or_v_pref, main_dir, (-h_or_v_pref[0], -h_or_v_pref[1])]
+
+                for dx, dy in direction_prefs:
+                    next_x, next_y = pos_local[0] + dx, pos_local[1] + dy
+                    if 0 <= next_y < height and 0 <= next_x < width and pixels_map_local[next_y, next_x]:
+                        path.append((next_x + map_offset_x, next_y + map_offset_y))
+                        pixels_map_local[next_y, next_x] = False
+                        num_pixels -= 1
+                        pos_local = (next_x, next_y)
+                        moved = True
+
+                        is_main_dir_move = (dx == main_dir[0] and dy == main_dir[1])
+                        if is_main_dir_move:
+                            n_steps += 1
+                            required_lookahead = int(base_lookahead + n_steps * lookahead_growth)
+                            has_enough = True
+                            for i in range(1, required_lookahead + 1):
+                                lx, ly = pos_local[0] + h_or_v_pref[0] * i, pos_local[1] + h_or_v_pref[1] * i
+                                if not (0 <= ly < height and 0 <= lx < width and pixels_map_local[ly, lx]):
+                                    has_enough = False;
+                                    break
+                            if not has_enough:
+                                h_or_v_pref = (-h_or_v_pref[0], -h_or_v_pref[1]);
+                                n_steps = 0
+                        else:
+                            n_steps = 0
+                        break
+                if not moved:
+                    last_pos_local = pos_local;
                     break
-            if start_pos_local[0] != -1:
-                break
 
-        pos_local = start_pos_local
-        path_top_down.append((pos_local[0] + map_offset_x, pos_local[1] + map_offset_y))
-        pixels_map_td[pos_local[1], pos_local[0]] = False
-        num_pixels_td -= 1
+        all_results.append((strokes, path))
 
-        down_steps = 0
-        h_pref_dx, h_pref_dy = 1, 0
+    # 找到最佳结果
+    # Numba不支持复杂的min key，所以手动循环
+    best_strokes = -1
+    best_path = List.empty_list(int_tuple)
+    best_strategy_idx = -1
 
-        while True:
-            moved = False
-            # Numba中需要手动构建优先级列表
-            direction_prefs = [(0, -1), (h_pref_dx, h_pref_dy), (0, 1), (-h_pref_dx, -h_pref_dy)]
+    for i in range(len(all_results)):
+        s, p = all_results[i]
+        if best_strokes == -1 or s < best_strokes or (s == best_strokes and len(p) < len(best_path)):
+            best_strokes = s
+            best_path = p
+            best_strategy_idx = i
 
-            for dx, dy in direction_prefs:
-                next_x, next_y = pos_local[0] + dx, pos_local[1] + dy
+    strategy_names = ("Top-to-Bottom", "Left-to-Right", "Bottom-to-Up", "Right-to-Left")
+    best_strategy_name = strategy_names[best_strategy_idx]
 
-                if 0 <= next_y < height and 0 <= next_x < width and pixels_map_td[next_y, next_x]:
-                    path_top_down.append((next_x + map_offset_x, next_y + map_offset_y))
-                    pixels_map_td[next_y, next_x] = False
-                    num_pixels_td -= 1
-                    pos_local = (next_x, next_y)
-                    moved = True
-
-                    if dy == 1 and dx == 0:
-                        down_steps += 1
-                        required_lookahead = int(base_lookahead + down_steps * lookahead_growth)
-                        has_enough = True
-                        for i in range(1, required_lookahead + 1):
-                            lx, ly = pos_local[0] + h_pref_dx * i, pos_local[1] + h_pref_dy * i
-                            if not (0 <= ly < height and 0 <= lx < width and pixels_map_td[ly, lx]):
-                                has_enough = False
-                                break
-                        if not has_enough:
-                            h_pref_dx, h_pref_dy = -h_pref_dx, -h_pref_dy
-                            down_steps = 0
-                    else:
-                        down_steps = 0
-                    break
-            if not moved:
-                break
-
-    # --- 策略2: 从左到右 (逻辑类似) ---
-    pixels_map_lr = pixels_map.copy()
-    strokes_left_right = 0
-    num_pixels_lr = np.sum(pixels_map_lr)
-
-    while num_pixels_lr > 0:
-        strokes_left_right += 1
-        start_pos_local = (-1, -1)
-        for x in range(width):
-            for y in range(height):
-                if pixels_map_lr[y, x]:
-                    start_pos_local = (x, y)
-                    break
-            if start_pos_local[0] != -1:
-                break
-
-        pos_local = start_pos_local
-        path_left_right.append((pos_local[0] + map_offset_x, pos_local[1] + map_offset_y))
-        pixels_map_lr[pos_local[1], pos_local[0]] = False
-        num_pixels_lr -= 1
-
-        right_steps = 0
-        v_pref_dx, v_pref_dy = 0, 1
-
-        while True:
-            moved = False
-            direction_prefs = [(-1, 0), (v_pref_dx, v_pref_dy), (1, 0), (-v_pref_dx, -v_pref_dy)]
-            for dx, dy in direction_prefs:
-                next_x, next_y = pos_local[0] + dx, pos_local[1] + dy
-                if 0 <= next_y < height and 0 <= next_x < width and pixels_map_lr[next_y, next_x]:
-                    path_left_right.append((next_x + map_offset_x, next_y + map_offset_y))
-                    pixels_map_lr[next_y, next_x] = False
-                    num_pixels_lr -= 1
-                    pos_local = (next_x, next_y)
-                    moved = True
-                    if dx == 1 and dy == 0:
-                        right_steps += 1
-                        required_lookahead = int(base_lookahead + right_steps * lookahead_growth)
-                        has_enough = True
-                        for i in range(1, required_lookahead + 1):
-                            lx, ly = pos_local[0] + v_pref_dx * i, pos_local[1] + v_pref_dy * i
-                            if not (0 <= ly < height and 0 <= lx < width and pixels_map_lr[ly, lx]):
-                                has_enough = False
-                                break
-                        if not has_enough:
-                            v_pref_dx, v_pref_dy = -v_pref_dx, -v_pref_dy
-                            right_steps = 0
-                    else:
-                        right_steps = 0
-                    break
-            if not moved:
-                break
-
-    return strokes_top_down, path_top_down, strokes_left_right, path_left_right
+    return best_strokes, best_path, best_strategy_name
 
 
 def generate_adaptive_scan_path(pixel_coords: set[tuple[int, int]]):
     """
-    Python外层函数，负责准备NumPy数组并调用JIT加速的核心逻辑。
+    Python外层函数，调用JIT顶层封装。
     """
     if not pixel_coords:
         return 0, []
 
-    # 1. 将像素坐标转换为一个紧凑的NumPy布尔数组 (map)
     coords_array = np.array(list(pixel_coords))
     min_x, min_y = np.min(coords_array, axis=0)
     max_x, max_y = np.max(coords_array, axis=0)
-
-    map_width = max_x - min_x + 1
-    map_height = max_y - min_y + 1
-
+    map_width, map_height = max_x - min_x + 1, max_y - min_y + 1
     pixels_map = np.zeros((map_height, map_width), dtype=np.bool_)
-
-    # 将全局坐标转换为map的局部坐标
     local_coords = coords_array - np.array([min_x, min_y])
     pixels_map[local_coords[:, 1], local_coords[:, 0]] = True
 
-    # 2. 调用JIT加速的核心函数
-    strokes_td, path_td_jit, strokes_lr, path_lr_jit = _jit_generate_adaptive_scan_path(
-        pixels_map,
-        min_x,
-        min_y,
-        map_height,
-        map_width,
-        BASE_LOOKAHEAD,
-        LOOKAHEAD_GROWTH
+    best_strokes, best_path_jit, best_strategy_name = _jit_generate_adaptive_scan_path(
+        pixels_map, min_x, min_y, map_height, map_width,
+        BASE_LOOKAHEAD, LOOKAHEAD_GROWTH
     )
 
-    # 3. 比较结果并返回
-    # 需要将 Numba List 转换回 Python list
-    if strokes_td <= strokes_lr:
-        if len(pixel_coords) >= CONNECTIVITY_THRESHOLD // 2:
-            print(f"      -> Strategy chosen: Top-to-Bottom ({strokes_td} strokes)")
-        return strokes_td, list(path_td_jit)
-    else:
-        if len(pixel_coords) >= CONNECTIVITY_THRESHOLD // 2:
-            print(f"      -> Strategy chosen: Left-to-Right ({strokes_lr} strokes)")
-        return strokes_lr, list(path_lr_jit)
+    print(f"      -> Strategy chosen: {best_strategy_name} ({best_strokes} strokes)")
+    return best_strokes, list(best_path_jit)
 
 
 def spiral_search_generator(start_x, start_y):
