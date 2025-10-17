@@ -8,7 +8,8 @@ from psd_tools.psd.image_resources import ImageResource, Resource
 from psd_tools.psd.vector import Path, Subpath, Knot
 from io import BytesIO
 from collections import deque, Counter
-from numba import njit
+from numba import njit, types
+from numba.typed import List
 from scipy.spatial import distance as dist
 
 from wplace_helper.utils import WPLACE_COLOR_PALETTE, DEFAULT_FREE_COLORS
@@ -16,10 +17,10 @@ from wplace_helper.utils import WPLACE_COLOR_PALETTE, DEFAULT_FREE_COLORS
 # ========================================================================
 # >> SETTINGS <<
 # ========================================================================
-PSD_FILE_PATH = "dst/98215752_p0/98215752_p0_undithered.psd"
-PIXEL_ART_PATH = "dst/98215752_p0/98215752_p0_converted.png"
-UNDITHERED_PIXEL_ART_PATH = "dst/98215752_p0/98215752_p0_undithered.png"
-OUTPUT_JSON_PATH = "wplacer_draw_order_try/98215752_p0.json"
+PSD_FILE_PATH = "dst/112525058_p0/112525058_p0_undithered.psd"
+PIXEL_ART_PATH = "dst/112525058_p0/112525058_p0_converted.png"
+UNDITHERED_PIXEL_ART_PATH = "dst/112525058_p0/112525058_p0_undithered.png"
+OUTPUT_JSON_PATH = "wplacer_draw_order_try/112525058_p0.json"
 OUTPUT_VISUALIZATION_PATH = "wplacer_draw_order_try/path_visualization.png"
 os.makedirs('wplacer_draw_order_try', exist_ok=True)
 
@@ -39,6 +40,12 @@ MAX_SCAN_DISTANCE = 2
 
 # 路径连续性插值参数
 ENABLE_POST_INTERPOLATION = True
+
+# [新增] 类人绘制算法参数
+CONNECTIVITY_THRESHOLD = 50
+INTERRUPT_SEARCH_RADIUS = 4
+BASE_LOOKAHEAD = 1      # f(0) 的值，即在不连续向下移动时，维持方向所需的最短长度
+LOOKAHEAD_GROWTH = 1 # f(n) 的增长斜率，n 每增加1，所需长度就增加这个值
 
 
 # ========================================================================
@@ -513,7 +520,7 @@ def find_contiguous_regions(pixel_coords_set, pixel_art_image):
         mask = np.zeros((height, width), dtype=np.uint8)
         coords_array = np.array(coords)
         mask[coords_array[:, 1], coords_array[:, 0]] = 255
-        num_labels, labels = cv2.connectedComponents(mask, 8)
+        num_labels, labels = cv2.connectedComponents(mask, 4)
         regions = [[] for _ in range(num_labels)]
         for x, y in coords:
             regions[labels[y, x]].append((x, y))
@@ -584,64 +591,319 @@ def sort_single_region_contiguously(region_coords):
     return final_path
 
 
-# (在您的脚本中找到并替换这个函数)
+int_tuple = types.UniTuple(types.int64, 2)
+
+
+@njit
+def _jit_generate_adaptive_scan_path(
+        pixels_map: np.ndarray,
+        map_offset_x: int,
+        map_offset_y: int,
+        height: int,
+        width: int,
+        base_lookahead: int,
+        lookahead_growth: float
+):
+    """
+    [JIT加速版] 核心的自适应扫描绘制逻辑。
+    使用NumPy布尔数组代替set进行超高速查询。
+    """
+    # path_top_down 和 path_left_right 必须在这里初始化为 Numba 类型
+    path_top_down = List.empty_list(int_tuple)
+    path_left_right = List.empty_list(int_tuple)
+
+    # --- 策略1: 从上到下 ---
+    pixels_map_td = pixels_map.copy()
+    strokes_top_down = 0
+    num_pixels_td = np.sum(pixels_map_td)
+
+    while num_pixels_td > 0:
+        strokes_top_down += 1
+
+        # 寻找起点 (Numba中需要手动循环)
+        start_pos_local = (-1, -1)
+        for y in range(height):
+            for x in range(width):
+                if pixels_map_td[y, x]:
+                    start_pos_local = (x, y)
+                    break
+            if start_pos_local[0] != -1:
+                break
+
+        pos_local = start_pos_local
+        path_top_down.append((pos_local[0] + map_offset_x, pos_local[1] + map_offset_y))
+        pixels_map_td[pos_local[1], pos_local[0]] = False
+        num_pixels_td -= 1
+
+        down_steps = 0
+        h_pref_dx, h_pref_dy = 1, 0
+
+        while True:
+            moved = False
+            # Numba中需要手动构建优先级列表
+            direction_prefs = [(0, -1), (h_pref_dx, h_pref_dy), (0, 1), (-h_pref_dx, -h_pref_dy)]
+
+            for dx, dy in direction_prefs:
+                next_x, next_y = pos_local[0] + dx, pos_local[1] + dy
+
+                if 0 <= next_y < height and 0 <= next_x < width and pixels_map_td[next_y, next_x]:
+                    path_top_down.append((next_x + map_offset_x, next_y + map_offset_y))
+                    pixels_map_td[next_y, next_x] = False
+                    num_pixels_td -= 1
+                    pos_local = (next_x, next_y)
+                    moved = True
+
+                    if dy == 1 and dx == 0:
+                        down_steps += 1
+                        required_lookahead = int(base_lookahead + down_steps * lookahead_growth)
+                        has_enough = True
+                        for i in range(1, required_lookahead + 1):
+                            lx, ly = pos_local[0] + h_pref_dx * i, pos_local[1] + h_pref_dy * i
+                            if not (0 <= ly < height and 0 <= lx < width and pixels_map_td[ly, lx]):
+                                has_enough = False
+                                break
+                        if not has_enough:
+                            h_pref_dx, h_pref_dy = -h_pref_dx, -h_pref_dy
+                            down_steps = 0
+                    else:
+                        down_steps = 0
+                    break
+            if not moved:
+                break
+
+    # --- 策略2: 从左到右 (逻辑类似) ---
+    pixels_map_lr = pixels_map.copy()
+    strokes_left_right = 0
+    num_pixels_lr = np.sum(pixels_map_lr)
+
+    while num_pixels_lr > 0:
+        strokes_left_right += 1
+        start_pos_local = (-1, -1)
+        for x in range(width):
+            for y in range(height):
+                if pixels_map_lr[y, x]:
+                    start_pos_local = (x, y)
+                    break
+            if start_pos_local[0] != -1:
+                break
+
+        pos_local = start_pos_local
+        path_left_right.append((pos_local[0] + map_offset_x, pos_local[1] + map_offset_y))
+        pixels_map_lr[pos_local[1], pos_local[0]] = False
+        num_pixels_lr -= 1
+
+        right_steps = 0
+        v_pref_dx, v_pref_dy = 0, 1
+
+        while True:
+            moved = False
+            direction_prefs = [(-1, 0), (v_pref_dx, v_pref_dy), (1, 0), (-v_pref_dx, -v_pref_dy)]
+            for dx, dy in direction_prefs:
+                next_x, next_y = pos_local[0] + dx, pos_local[1] + dy
+                if 0 <= next_y < height and 0 <= next_x < width and pixels_map_lr[next_y, next_x]:
+                    path_left_right.append((next_x + map_offset_x, next_y + map_offset_y))
+                    pixels_map_lr[next_y, next_x] = False
+                    num_pixels_lr -= 1
+                    pos_local = (next_x, next_y)
+                    moved = True
+                    if dx == 1 and dy == 0:
+                        right_steps += 1
+                        required_lookahead = int(base_lookahead + right_steps * lookahead_growth)
+                        has_enough = True
+                        for i in range(1, required_lookahead + 1):
+                            lx, ly = pos_local[0] + v_pref_dx * i, pos_local[1] + v_pref_dy * i
+                            if not (0 <= ly < height and 0 <= lx < width and pixels_map_lr[ly, lx]):
+                                has_enough = False
+                                break
+                        if not has_enough:
+                            v_pref_dx, v_pref_dy = -v_pref_dx, -v_pref_dy
+                            right_steps = 0
+                    else:
+                        right_steps = 0
+                    break
+            if not moved:
+                break
+
+    return strokes_top_down, path_top_down, strokes_left_right, path_left_right
+
+
+def generate_adaptive_scan_path(pixel_coords: set[tuple[int, int]]):
+    """
+    Python外层函数，负责准备NumPy数组并调用JIT加速的核心逻辑。
+    """
+    if not pixel_coords:
+        return 0, []
+
+    # 1. 将像素坐标转换为一个紧凑的NumPy布尔数组 (map)
+    coords_array = np.array(list(pixel_coords))
+    min_x, min_y = np.min(coords_array, axis=0)
+    max_x, max_y = np.max(coords_array, axis=0)
+
+    map_width = max_x - min_x + 1
+    map_height = max_y - min_y + 1
+
+    pixels_map = np.zeros((map_height, map_width), dtype=np.bool_)
+
+    # 将全局坐标转换为map的局部坐标
+    local_coords = coords_array - np.array([min_x, min_y])
+    pixels_map[local_coords[:, 1], local_coords[:, 0]] = True
+
+    # 2. 调用JIT加速的核心函数
+    strokes_td, path_td_jit, strokes_lr, path_lr_jit = _jit_generate_adaptive_scan_path(
+        pixels_map,
+        min_x,
+        min_y,
+        map_height,
+        map_width,
+        BASE_LOOKAHEAD,
+        LOOKAHEAD_GROWTH
+    )
+
+    # 3. 比较结果并返回
+    # 需要将 Numba List 转换回 Python list
+    if strokes_td <= strokes_lr:
+        if len(pixel_coords) >= CONNECTIVITY_THRESHOLD // 2:
+            print(f"      -> Strategy chosen: Top-to-Bottom ({strokes_td} strokes)")
+        return strokes_td, list(path_td_jit)
+    else:
+        if len(pixel_coords) >= CONNECTIVITY_THRESHOLD // 2:
+            print(f"      -> Strategy chosen: Left-to-Right ({strokes_lr} strokes)")
+        return strokes_lr, list(path_lr_jit)
+
+
+def spiral_search_generator(start_x, start_y):
+    """
+    一个生成器，以(start_x, start_y)为中心，按螺旋向外产生坐标。
+    """
+    x, y = start_x, start_y
+    yield (x, y)
+    dx, dy = 1, 0
+    steps = 1
+    turns = 0
+    while True:
+        for _ in range(steps):
+            x, y = x + dx, y + dy
+            yield (x, y)
+        # 转向
+        dx, dy = -dy, dx
+        turns += 1
+        if turns % 2 == 0:
+            steps += 1
+
+
+# (用这个新版本替换旧的 sort_and_flatten_regions 函数)
 
 def sort_and_flatten_regions(regions_by_color, default_free_colors):
     """
-    [已重构] 对区域进行排序和扁平化，实现“付费颜色优先”的逻辑。
-
-    Args:
-        regions_by_color (dict): 按颜色分组的区域字典。
-        default_free_colors (set): 包含所有免费颜色名称的集合。
+    [最终优化版 v3] 采用“颜色聚合优先，内部类人绘制”的最终策略。
     """
     final_order = []
 
-    # --- 步骤1: 创建一个包含完整信息的颜色列表 ---
-    color_info_list = []
+    # --- 顶层：颜色排序 ---
+    print("\n  -> Applying 'Color Aggregate First' strategy:")
 
-    # 获取WPlace调色板的名称映射，以便判断颜色是否付费
-    # (假设 WPLACE_COLOR_PALETTE 在全局作用域可用)
     rgb_to_name_map = {tuple(c['rgb']): c['name'] for c in WPLACE_COLOR_PALETTE}
-
+    color_info_list = []
     for color_rgb, regions in regions_by_color.items():
-        # 将 (b, g, r) 转为 (r, g, b) 以匹配调色板
-        r, g, b = color_rgb[2], color_rgb[1], color_rgb[0]
-        color_name = rgb_to_name_map.get((r, g, b), "Unknown Color")
-
+        r_tuple = (color_rgb[2], color_rgb[1], color_rgb[0])
+        color_name = rgb_to_name_map.get(r_tuple, "Unknown Color")
         is_paid = color_name not in default_free_colors
         total_pixels = sum(len(region) for region in regions)
-
         color_info_list.append({
             "color_rgb": color_rgb,
             "total_pixels": total_pixels,
             "is_paid": is_paid
         })
 
-    # --- 步骤2: 执行两阶段排序 ---
-    # 首先按 is_paid 降序 (True 在前), 然后按 total_pixels 降序
-    sorted_color_info = sorted(
-        color_info_list,
-        key=lambda x: (x['is_paid'], x['total_pixels']),
-        reverse=True
-    )
+    # 按 付费优先 -> 像素数降序 对颜色进行排序
+    sorted_color_info = sorted(color_info_list, key=lambda x: (x['is_paid'], x['total_pixels']), reverse=True)
 
-    print("\n  -> Applying 'Paid First' sorting strategy:")
-
-    # --- 步骤3: 按新的颜色顺序处理区域 ---
+    # --- 中层：依次处理每个颜色组 ---
     for color_info in sorted_color_info:
         color_rgb = color_info['color_rgb']
-        regions = regions_by_color[color_rgb]
-
+        regions_in_color = regions_by_color[color_rgb]
         paid_status = "Paid" if color_info['is_paid'] else "Free"
-        print(f"    - Processing {paid_status} color {color_rgb} with {color_info['total_pixels']} pixels...")
+        print(f"\n    Processing {paid_status} color {color_rgb} with {color_info['total_pixels']} pixels...")
 
-        # 在每个颜色组内部，仍然按区域大小降序处理
-        regions.sort(key=len, reverse=True)
+        # --- 在颜色内部，应用我们熟悉的“主体优先，中断插入”逻辑 ---
 
-        for region in regions:
-            # 内部的排序算法保持不变
-            sorted_region_pixels = sort_single_region_contiguously(region)
-            final_order.extend(sorted_region_pixels)
+        # 1. 分组
+        large_regions_pixels = []
+        small_regions = []
+        for region in regions_in_color:
+            if len(region) >= CONNECTIVITY_THRESHOLD:
+                large_regions_pixels.append(set(map(tuple, region)))
+            else:
+                small_regions.append({'pixels': set(map(tuple, region)), 'size': len(region)})
+
+        # 2. 主体绘制 (大块)
+        large_region_results = []
+        for pixel_set in large_regions_pixels:
+            stroke_count, path = generate_adaptive_scan_path(pixel_set)
+            connectivity_score = len(pixel_set) / (stroke_count ** 2) if stroke_count > 0 else float('inf')
+            large_region_results.append({'score': connectivity_score, 'path': path})
+
+        sorted_large_regions = sorted(large_region_results, key=lambda x: x['score'], reverse=True)
+        main_path_for_color = [p for result in sorted_large_regions for p in result['path']]
+
+        if not main_path_for_color:
+            print("      - No large regions for this color.")
+        else:
+            print(f"      - Main path with {len(main_path_for_color)} pixels generated for this color.")
+
+        # 3. 中断插入 (小块)
+        if not small_regions:
+            final_order.extend(main_path_for_color)
+            continue  # 如果没有小块，直接进入下一个颜色
+
+        if main_path_for_color:
+            main_path_pixel_set = set(main_path_for_color)
+            main_path_index_map = {pixel: i for i, pixel in enumerate(main_path_for_color)}
+        else:  # 如果这个颜色只有小块
+            # 对这些小块自身进行排序并直接添加到final_order
+            sorted_small_only = sorted(small_regions, key=lambda r: r['size'], reverse=True)
+            for region_info in sorted_small_only:
+                _, small_path = generate_adaptive_scan_path(region_info['pixels'])
+                final_order.extend(small_path)
+            continue  # 处理完成，进入下一个颜色
+
+        insertions = {}
+        appended_at_end = []
+
+        # 小块内部也按大小排一下序
+        sorted_small_regions = sorted(small_regions, key=lambda r: r['size'], reverse=True)
+
+        for region_info in sorted_small_regions:
+            _, small_path = generate_adaptive_scan_path(region_info['pixels'])
+            if not small_path: continue
+            start_point = small_path[0]
+            found_anchor = False
+            search_gen = spiral_search_generator(start_point[0], start_point[1])
+            for i, (sx, sy) in enumerate(search_gen):
+                if i > (INTERRUPT_SEARCH_RADIUS * 2 + 1) ** 2:
+                    appended_at_end.extend(small_path);
+                    found_anchor = True;
+                    break
+                search_pixel = (sx, sy)
+                if search_pixel in main_path_pixel_set:
+                    insert_index = main_path_index_map[search_pixel]
+                    if insert_index not in insertions: insertions[insert_index] = []
+                    insertions[insert_index].extend(small_path)
+                    found_anchor = True;
+                    break
+            if not found_anchor:
+                appended_at_end.extend(small_path)
+
+        # 构建这个颜色的最终路径
+        color_final_path = []
+        for i, pixel in enumerate(main_path_for_color):
+            color_final_path.append(pixel)
+            if i in insertions:
+                color_final_path.extend(insertions[i])
+        color_final_path.extend(appended_at_end)
+
+        print(f"      - Insertion for this color complete. Path length: {len(color_final_path)}")
+        final_order.extend(color_final_path)
 
     return final_order
 

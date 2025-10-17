@@ -3,10 +3,10 @@ from PIL import Image
 # --- 配置项 ---
 
 # 输入您的原始像素画文件名
-INPUT_FILENAME = r"E:\共享\dst\00000-3494321294\00000-3494321294_modified_converted_cleared.png"
+INPUT_FILENAME = r"E:\共享\dst\116079141_p0\116079141_p0_converted.png"
 
 # 处理后保存的文件名
-OUTPUT_FILENAME = r"E:\共享\dst\00000-3494321294\00000-3494321294_modified_converted_cleared.png"
+OUTPUT_FILENAME = r"E:\共享\dst\116079141_p0\116079141_p0_converted_cleared.png"
 
 # --- 颜色判断的精细调整 ---
 
@@ -15,7 +15,7 @@ OUTPUT_FILENAME = r"E:\共享\dst\00000-3494321294\00000-3494321294_modified_con
 # 并会从图像边缘移除。
 # 值范围是 0-255。推荐值在 190 到 220 之间。
 # 值越低，越多浅色会被移除。值越高，只有接近纯白的颜色才会被移除。
-BRIGHTNESS_THRESHOLD = 100
+BRIGHTNESS_THRESHOLD = 120
 
 # 灰度容差 (Greyscale Tolerance)
 # 如果一个颜色的R,G,B最大值和最小值的差小于此数值，则被视为灰色/黑色。
