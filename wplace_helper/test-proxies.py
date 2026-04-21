@@ -1,12 +1,11 @@
 import requests
 import sys
 
-from wplace_helper.translate_outbounds_to_config import START_PORT, NUM_ACCOUNTS_TO_BIND
-
 # ========================================================================
 # >> SETTINGS: 在这里修改你要测试的本地端口 <<
 # ========================================================================
-
+START_PORT = 23456
+NUM_ACCOUNTS_TO_BIND = 57
 # 将你在 v2ray-core config.json 中设置的、用于绑定的本地端口都列在这里
 PROXIES_TO_TEST = list(range(START_PORT, START_PORT + NUM_ACCOUNTS_TO_BIND))
 

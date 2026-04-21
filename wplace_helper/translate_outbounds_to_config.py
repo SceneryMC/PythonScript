@@ -8,12 +8,12 @@ import os
 # 设置您希望创建的“账号-代理”绑定数量
 # 例如，如果您有10个账号想绑定，就设置为10
 # 注意：这个数字不应超过下面 outbounds_data 中的代理数量
-INPUT_NEW_OUTBOUNDS_FILE = r"C:\PortableSoftwares\v2rayN-windows-64\guiConfigs\configMultipleLoad.json"
+INPUT_NEW_OUTBOUNDS_FILE = r"vpn_configs/milkcat.json"
 
-EXISTING_CONFIG_FILE = r"C:\PortableSoftwares\v2ray-windows-64\config-test.json"
+EXISTING_CONFIG_FILE = r"vpn_configs/tmp.json"
 
 # [新增] 输出文件：最终生成的完整 config.json 的保存路径
-OUTPUT_CONFIG_FILE = r"C:\PortableSoftwares\v2ray-windows-64\config-test-appended.json"
+OUTPUT_CONFIG_FILE = r"vpn_configs/output.json"
 
 # [回落设置] 只有在 EXISTING_CONFIG_FILE 不存在时，这个起始端口才会被使用
 DEFAULT_START_PORT = 23456
@@ -72,20 +72,10 @@ def generate_incremental_config():
         """辅助函数，用于为 outbound 生成一个唯一的标识符字符串。"""
         try:
             # 适用于 shadowsocks, vmess, vless 等常见协议
-            server = outbound["settings"]["servers"][0]
-            # 我们将协议、地址、端口和密码（或ID）组合起来
-            protocol = outbound.get("protocol", "")
-            address = server.get("address", "")
-            port = server.get("port", "")
-            method = server.get("method", "")
-            # 不同协议的'密码'字段不同
-            password = server.get("password", server.get("id", server.get("users", [{}])[0].get("id", "")))
-            s = f"{protocol}|{address}|{method}|{port}|{password}"
-            # print(s)
-            return s
+            return repr(outbound)
         except (KeyError, IndexError, TypeError):
             # 如果结构不符合预期，返回一个基于tag的备用标识符或None
-            print("ERROR!")
+            print(f"ERROR! {outbound}", file=sys.stderr)
             return outbound.get("tag")
 
     # 使用我们生成的唯一标识符作为字典的键
@@ -141,7 +131,7 @@ def generate_incremental_config():
     new_inbounds = []
     new_rules = []
     for i in range(num_to_bind):
-        port = start_port + i;
+        port = start_port + i
         inbound_tag = f"in-account-{port}"
         new_inbounds.append(
             {"port": port, "listen": "127.0.0.1", "protocol": "socks", "settings": {"auth": "noauth", "udp": True},

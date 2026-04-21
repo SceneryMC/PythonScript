@@ -3,10 +3,10 @@ from PIL import Image
 # --- 配置项 ---
 
 # 输入您的原始像素画文件名
-INPUT_FILENAME = r"E:\共享\dst\116079141_p0\116079141_p0_converted.png"
+INPUT_FILENAME = r"E:\共享\dst\citlali\citlali_converted.png"
 
 # 处理后保存的文件名
-OUTPUT_FILENAME = r"E:\共享\dst\116079141_p0\116079141_p0_converted_cleared.png"
+OUTPUT_FILENAME = r"E:\共享\dst\citlali\citlali_converted_cleared.png"
 
 # --- 颜色判断的精细调整 ---
 
@@ -19,7 +19,7 @@ BRIGHTNESS_THRESHOLD = 120
 
 # 灰度容差 (Greyscale Tolerance)
 # 如果一个颜色的R,G,B最大值和最小值的差小于此数值，则被视为灰色/黑色。
-GREYSCALE_TOLERANCE = 30
+GREYSCALE_TOLERANCE = 0
 
 # 饱和度阈值 (Saturation Threshold)
 # 如果一个颜色的饱和度低于此值，则被视为“安全”的大地色系或暗色。
@@ -55,7 +55,6 @@ def is_safe_color(r, g, b):
     if max_val == g:
         return False
 
-    # 如果以上安全条件都不满足，说明这是一个需要从边缘移除的彩色。
     return True
 
 
