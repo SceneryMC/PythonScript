@@ -1,3 +1,4 @@
+import math
 import cv2
 import numpy as np
 import os
@@ -17,15 +18,15 @@ from wplace_helper.utils import WPLACE_COLOR_PALETTE, DEFAULT_FREE_COLORS
 # ========================================================================
 # >> SETTINGS <<
 # ========================================================================
-PSD_FILE_PATH = "dst/112525058_p0/112525058_p0_undithered.psd"
-PIXEL_ART_PATH = "dst/112525058_p0/112525058_p0_converted.png"
-UNDITHERED_PIXEL_ART_PATH = "dst/112525058_p0/112525058_p0_undithered.png"
-OUTPUT_JSON_PATH = "wplacer_draw_order_try/112525058_p0.json"
+PSD_FILE_PATH = "dst/layla_birthday_2023/layla_birthday_2023.psd"
+PIXEL_ART_PATH = "dst/layla_birthday_2023/layla_birthday_2023_converted.png"
+UNDITHERED_PIXEL_ART_PATH = "dst/layla_birthday_2023/layla_birthday_2023_undithered.png"
+OUTPUT_JSON_PATH = "wplacer_draw_order_try/layla_birthday_2023.json"
 OUTPUT_VISUALIZATION_PATH = "wplacer_draw_order_try/path_visualization.png"
 os.makedirs('wplacer_draw_order_try', exist_ok=True)
 
 # 路径处理参数
-NUM_OUTLINE_PATHS = 6
+NUM_OUTLINE_PATHS = 20
 
 # [已修改] 算法参数
 NEIGHBOUR_RANGE = 0  # 用于计算颜色平均值的大邻域范围 (e.g., 19x19)
@@ -42,8 +43,8 @@ MAX_SCAN_DISTANCE = 2
 ENABLE_POST_INTERPOLATION = True
 
 # [新增] 类人绘制算法参数
-CONNECTIVITY_THRESHOLD = 50
-INTERRUPT_SEARCH_RADIUS = 4
+CONNECTIVITY_THRESHOLD = 100
+INTERRUPT_SEARCH_RADIUS = 2
 BASE_LOOKAHEAD = 1      # f(0) 的值，即在不连续向下移动时，维持方向所需的最短长度
 LOOKAHEAD_GROWTH = 1 # f(n) 的增长斜率，n 每增加1，所需长度就增加这个值
 
@@ -187,7 +188,7 @@ def extract_grouped_paths_from_psd(psd: PSDImage) -> list[list[Subpath]]:
     path_resources = {key.value: res for key, res in psd.image_resources.items() if
                       isinstance(key, Resource) and Resource.is_path_info(key.value)}
     if not path_resources:
-        print("  - No PATH_INFO resources found.");
+        print("  - No PATH_INFO resources found.")
         return []
 
     sorted_keys = sorted(path_resources.keys())
@@ -276,7 +277,7 @@ def rasterize_subpaths_ordered(subpaths: list[Subpath], pixel_art_image: np.ndar
 
                 current_x += x_inc
                 current_y += y_inc
-
+    # print(f"length = {len(final_ordered_coords)}")
     return list(final_ordered_coords.keys())
 
 
@@ -749,8 +750,52 @@ def generate_adaptive_scan_path(pixel_coords: set[tuple[int, int]]):
         BASE_LOOKAHEAD, LOOKAHEAD_GROWTH
     )
 
-    print(f"      -> Strategy chosen: {best_strategy_name} ({best_strokes} strokes)")
+    # print(f"      -> Strategy chosen: {best_strategy_name} ({best_strokes} strokes)")
     return best_strokes, list(best_path_jit)
+
+
+# (将这个函数添加到您的脚本的“辅助函数”部分)
+def get_four_corners(pixel_set: set[tuple[int, int]]) -> list[tuple[int, int]]:
+    """
+    从一个像素集合中找出最上、最下、最左、最右的像素点。
+    """
+    if not pixel_set:
+        return []
+
+    pixels = list(pixel_set)
+    # 转换为 NumPy 数组方便计算
+    coords = np.array(pixels)
+
+    # 最左 (最小X)
+    min_x = np.min(coords[:, 0])
+    left_points = coords[coords[:, 0] == min_x]
+
+    # 最右 (最大X)
+    max_x = np.max(coords[:, 0])
+    right_points = coords[coords[:, 0] == max_x]
+
+    # 最上 (最小Y)
+    min_y = np.min(coords[:, 1])
+    top_points = coords[coords[:, 1] == min_y]
+
+    # 最下 (最大Y)
+    max_y = np.max(coords[:, 1])
+    bottom_points = coords[coords[:, 1] == max_y]
+
+    # 收集四个角的点 (确保不重复)
+    corners = set()
+    # 选取最左/最右点的最上和最下，确保找到“角”
+
+    # 左上角 (min X, min Y)
+    corners.add(tuple(left_points[np.argmin(left_points[:, 1])]))
+    # 左下角 (min X, max Y)
+    corners.add(tuple(left_points[np.argmax(left_points[:, 1])]))
+    # 右上角 (max X, min Y)
+    corners.add(tuple(right_points[np.argmin(right_points[:, 1])]))
+    # 右下角 (max X, max Y)
+    corners.add(tuple(right_points[np.argmax(right_points[:, 1])]))
+
+    return list(corners)
 
 
 def spiral_search_generator(start_x, start_y):
@@ -774,51 +819,219 @@ def spiral_search_generator(start_x, start_y):
 
 
 # (用这个新版本替换旧的 sort_and_flatten_regions 函数)
+def group_and_sort_leftovers(leftover_pixels: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """
+    【v3 - 终极优化版】
+    1. 几何覆盖: 使用X轴滑动扫描，用最少矩形覆盖散点。
+    2. 路径规划: 使用TSP算法重排矩形执行顺序，最小化地图平移距离。
+    """
+    if not leftover_pixels:
+        return []
+
+    # 固定参数
+    RECT_W = 150
+    RECT_H = 75
+
+    print(f"        -> Optimizing coverage & path for {len(leftover_pixels)} pixels...")
+
+    # --- 1. 内部求解器：解决覆盖问题 (保持 v2 逻辑) ---
+    def solve_coverage(pixels_set, mode='strict_top_left'):
+        remaining = set(pixels_set)
+        # 这里改为存储元组: (rect_center_point, pixel_list)
+        # 我们用矩形内所有点的几何中心来代表这个矩形的位置
+        groups_with_info = []
+
+        while remaining:
+            seed = min(remaining, key=lambda p: (p[1], p[0]))
+            seed_x, seed_y = seed
+            rect_top = seed_y
+            rect_bottom = rect_top + RECT_H
+            best_rect_left = seed_x
+
+            if mode == 'scan_x_alignment':
+                min_valid_left = seed_x - RECT_W + 1
+                max_valid_left = seed_x
+                potential_neighbors = [p for p in remaining if
+                                       rect_top <= p[1] < rect_bottom and min_valid_left <= p[0] < seed_x + RECT_W]
+                candidates = {seed_x, min_valid_left}
+                for p in potential_neighbors:
+                    c1 = p[0]
+                    if min_valid_left <= c1 <= max_valid_left: candidates.add(c1)
+                    c2 = p[0] - RECT_W + 1
+                    if min_valid_left <= c2 <= max_valid_left: candidates.add(c2)
+
+                max_count = -1
+                for left_x in candidates:
+                    right_x = left_x + RECT_W
+                    count = 0
+                    for p in potential_neighbors:
+                        if left_x <= p[0] < right_x: count += 1
+                    if count > max_count:
+                        max_count = count
+                        best_rect_left = left_x
+
+            rect_left = best_rect_left
+            rect_right = rect_left + RECT_W
+
+            final_covered = []
+            to_remove = []
+
+            # 计算这一组像素的质心
+            sum_x, sum_y = 0, 0
+
+            for p in remaining:
+                if rect_left <= p[0] < rect_right and rect_top <= p[1] < rect_bottom:
+                    final_covered.append(p)
+                    to_remove.append(p)
+                    sum_x += p[0]
+                    sum_y += p[1]
+
+            final_covered.sort(key=lambda p: (p[1], p[0]))
+
+            # 计算质心 (Centroid)
+            center_x = sum_x / len(final_covered)
+            center_y = sum_y / len(final_covered)
+
+            groups_with_info.append({
+                'pixels': final_covered,
+                'center': (center_x, center_y)
+            })
+
+            for p in to_remove: remaining.remove(p)
+
+        return groups_with_info
+
+    # --- 2. 覆盖优化 (双路竞技) ---
+    groups_a = solve_coverage(leftover_pixels, mode='strict_top_left')
+    groups_b = solve_coverage(leftover_pixels, mode='scan_x_alignment')
+
+    # 优先选组数少的
+    if len(groups_b) < len(groups_a):
+        print(f"          - Optimization: Reduced groups from {len(groups_a)} to {len(groups_b)} using X-scan.")
+        best_groups = groups_b
+    else:
+        print(f"          - Standard greedy was optimal ({len(groups_a)} groups).")
+        best_groups = groups_a
+
+    # --- 3. 【✨ 核心新增：TSP 路径优化 ✨】 ---
+    # 使用“最近邻”算法重排 best_groups
+
+    if not best_groups: return []
+
+    sorted_groups = []
+
+    # a. 找到起点：距离整个图像左上角 (0,0) 最近的组
+    #    (或者你可以传入上一笔画的结束点作为 start_pos，这里简化处理)
+    start_pos = (0, 0)
+    first_group_idx = min(range(len(best_groups)),
+                          key=lambda i: math.hypot(best_groups[i]['center'][0] - start_pos[0],
+                                                   best_groups[i]['center'][1] - start_pos[1]))
+
+    current_group = best_groups.pop(first_group_idx)
+    sorted_groups.append(current_group)
+
+    # b. 贪心迭代
+    while best_groups:
+        last_center = current_group['center']
+
+        # 找到距离 last_center 最近的下一个组
+        nearest_idx = min(range(len(best_groups)),
+                          key=lambda i: math.hypot(best_groups[i]['center'][0] - last_center[0],
+                                                   best_groups[i]['center'][1] - last_center[1]))
+
+        current_group = best_groups.pop(nearest_idx)
+        sorted_groups.append(current_group)
+
+    print(f"          - Reordered {len(sorted_groups)} groups for minimal travel distance.")
+
+    # --- 4. 展平结果 ---
+    final_sorted_path = []
+    for grp in sorted_groups:
+        final_sorted_path.extend(grp['pixels'])
+
+    return final_sorted_path
+
 
 def sort_and_flatten_regions(regions_by_color, default_free_colors):
-    """
-    [最终优化版 v3] 采用“颜色聚合优先，内部类人绘制”的最终策略。
-    """
     final_order = []
 
-    # --- 顶层：颜色排序 ---
-    print("\n  -> Applying 'Color Aggregate First' strategy:")
-
+    # --- 1. 初始颜色数据提取 ---
     rgb_to_name_map = {tuple(c['rgb']): c['name'] for c in WPLACE_COLOR_PALETTE}
-    color_info_list = []
+    paid_list = []
+    free_list = []
+
     for color_rgb, regions in regions_by_color.items():
         r_tuple = (color_rgb[2], color_rgb[1], color_rgb[0])
-        color_name = rgb_to_name_map.get(r_tuple, "Unknown Color")
-        is_paid = color_name not in default_free_colors
-        total_pixels = sum(len(region) for region in regions)
-        color_info_list.append({
+        name = rgb_to_name_map.get(r_tuple, "Unknown Color")
+        is_paid = name not in default_free_colors
+        info = {
             "color_rgb": color_rgb,
-            "total_pixels": total_pixels,
+            "total_pixels": sum(len(r) for r in regions),
+            "regions": regions,
             "is_paid": is_paid
-        })
+        }
+        if is_paid:
+            paid_list.append(info)
+        else:
+            free_list.append(info)
 
-    # 按 付费优先 -> 像素数降序 对颜色进行排序
-    sorted_color_info = sorted(color_info_list, key=lambda x: (x['is_paid'], x['total_pixels']), reverse=True)
+    # 分别按像素数量从大到小排序
+    paid_list.sort(key=lambda x: x['total_pixels'], reverse=True)
+    free_list.sort(key=lambda x: x['total_pixels'], reverse=True)
 
-    # --- 中层：依次处理每个颜色组 ---
-    for color_info in sorted_color_info:
-        color_rgb = color_info['color_rgb']
-        regions_in_color = regions_by_color[color_rgb]
-        paid_status = "Paid" if color_info['is_paid'] else "Free"
-        print(f"\n    Processing {paid_status} color {color_rgb} with {color_info['total_pixels']} pixels...")
+    # --- 2. 构建处理队列 (补全了 total_pixels 键) ---
+    processing_queue = []
 
-        # --- 在颜色内部，应用我们熟悉的“主体优先，中断插入”逻辑 ---
+    for group_list, label_prefix in [(paid_list, "Paid"), (free_list, "Free")]:
+        if not group_list: continue
 
-        # 1. 分组
+        # 计算切分点：保留前面的，合并最后10个
+        split_idx = max(0, len(group_list) - 10)
+        top_entries = group_list[:split_idx]
+        bottom_entries = group_list[split_idx:]
+
+        # A. 前面的颜色：保持独立任务
+        for entry in top_entries:
+            processing_queue.append({
+                "label": f"Color {entry['color_rgb']}",
+                "regions": entry['regions'],
+                "is_paid": entry['is_paid'],
+                "total_pixels": entry['total_pixels']  # 补上这个键
+            })
+
+        # B. 后10名颜色：合并为一个任务
+        if bottom_entries:
+            merged_regions = []
+            merged_total = 0
+            for entry in bottom_entries:
+                merged_regions.extend(entry['regions'])
+                merged_total += entry['total_pixels']
+
+            processing_queue.append({
+                "label": f"Merged Bottom-10 {label_prefix} Colors",
+                "regions": merged_regions,
+                "is_paid": bottom_entries[0]['is_paid'],
+                "total_pixels": merged_total  # 补上这个键
+            })
+
+    # --- 3. 核心循环：依次处理队列中的每个条目 ---
+    for item in processing_queue:
+        regions_to_process = item['regions']
+        paid_status = "Paid" if item['is_paid'] else "Free"
+        print(f"\n    Processing {paid_status} {item['label']} with {item['total_pixels']} pixels...")
+
+        # --- 以下逻辑完全保留原样，仅将输入变量由颜色特定改为 item['regions'] ---
+
+        # 1. 区域内部的分组（主体 vs 碎片）
         large_regions_pixels = []
         small_regions = []
-        for region in regions_in_color:
+        for region in regions_to_process:
             if len(region) >= CONNECTIVITY_THRESHOLD:
                 large_regions_pixels.append(set(map(tuple, region)))
             else:
                 small_regions.append({'pixels': set(map(tuple, region)), 'size': len(region)})
 
-        # 2. 主体绘制 (大块)
+        # 2. 主体绘制（大块）
         large_region_results = []
         for pixel_set in large_regions_pixels:
             stroke_count, path = generate_adaptive_scan_path(pixel_set)
@@ -826,66 +1039,67 @@ def sort_and_flatten_regions(regions_by_color, default_free_colors):
             large_region_results.append({'score': connectivity_score, 'path': path})
 
         sorted_large_regions = sorted(large_region_results, key=lambda x: x['score'], reverse=True)
-        main_path_for_color = [p for result in sorted_large_regions for p in result['path']]
+        main_path_for_item = [p for result in sorted_large_regions for p in result['path']]
 
-        if not main_path_for_color:
-            print("      - No large regions for this color.")
-        else:
-            print(f"      - Main path with {len(main_path_for_color)} pixels generated for this color.")
+        if not main_path_for_item and not small_regions: continue
 
-        # 3. 中断插入 (小块)
         if not small_regions:
-            final_order.extend(main_path_for_color)
-            continue  # 如果没有小块，直接进入下一个颜色
+            final_order.extend(main_path_for_item)
+            continue
 
-        if main_path_for_color:
-            main_path_pixel_set = set(main_path_for_color)
-            main_path_index_map = {pixel: i for i, pixel in enumerate(main_path_for_color)}
-        else:  # 如果这个颜色只有小块
-            # 对这些小块自身进行排序并直接添加到final_order
-            sorted_small_only = sorted(small_regions, key=lambda r: r['size'], reverse=True)
-            for region_info in sorted_small_only:
-                _, small_path = generate_adaptive_scan_path(region_info['pixels'])
-                final_order.extend(small_path)
-            continue  # 处理完成，进入下一个颜色
+        # 3. 中断插入（碎片处理）
+        if main_path_for_item:
+            main_path_pixel_set = set(main_path_for_item)
+            main_path_index_map = {pixel: i for i, pixel in enumerate(main_path_for_item)}
+        else:
+            all_flattened = []
+            for region_info in small_regions:
+                all_flattened.extend(region_info['pixels'])
+            small_path = group_and_sort_leftovers(all_flattened)
+            final_order.extend(small_path)
+            continue
 
         insertions = {}
         appended_at_end = []
-
-        # 小块内部也按大小排一下序
         sorted_small_regions = sorted(small_regions, key=lambda r: r['size'], reverse=True)
 
         for region_info in sorted_small_regions:
             _, small_path = generate_adaptive_scan_path(region_info['pixels'])
             if not small_path: continue
-            start_point = small_path[0]
+
+            anchor_points = get_four_corners(region_info['pixels']) or [small_path[0]]
             found_anchor = False
-            search_gen = spiral_search_generator(start_point[0], start_point[1])
-            for i, (sx, sy) in enumerate(search_gen):
-                if i > (INTERRUPT_SEARCH_RADIUS * 2 + 1) ** 2:
-                    appended_at_end.extend(small_path);
-                    found_anchor = True;
-                    break
-                search_pixel = (sx, sy)
-                if search_pixel in main_path_pixel_set:
-                    insert_index = main_path_index_map[search_pixel]
-                    if insert_index not in insertions: insertions[insert_index] = []
-                    insertions[insert_index].extend(small_path)
-                    found_anchor = True;
-                    break
-            if not found_anchor:
+            best_insert_index = -1
+
+            for anchor_point in anchor_points:
+                search_gen = spiral_search_generator(anchor_point[0], anchor_point[1])
+                for i, (sx, sy) in enumerate(search_gen):
+                    if i > (INTERRUPT_SEARCH_RADIUS * 2 + 1) ** 2: break
+                    search_pixel = (sx, sy)
+                    if search_pixel in main_path_pixel_set:
+                        best_insert_index = main_path_index_map[search_pixel]
+                        found_anchor = True
+                        break
+                if found_anchor: break
+
+            if found_anchor:
+                if best_insert_index not in insertions: insertions[best_insert_index] = []
+                insertions[best_insert_index].extend(small_path)
+            else:
                 appended_at_end.extend(small_path)
 
-        # 构建这个颜色的最终路径
-        color_final_path = []
-        for i, pixel in enumerate(main_path_for_color):
-            color_final_path.append(pixel)
+        # 4. 构建当前组的最终路径
+        item_final_path = []
+        for i, pixel in enumerate(main_path_for_item):
+            item_final_path.append(pixel)
             if i in insertions:
-                color_final_path.extend(insertions[i])
-        color_final_path.extend(appended_at_end)
+                item_final_path.extend(insertions[i])
 
-        print(f"      - Insertion for this color complete. Path length: {len(color_final_path)}")
-        final_order.extend(color_final_path)
+        sorted_leftovers = group_and_sort_leftovers(appended_at_end)
+        item_final_path.extend(sorted_leftovers)
+
+        print(f"      - Processing complete. Path length: {len(item_final_path)}")
+        final_order.extend(item_final_path)
 
     return final_order
 
@@ -903,6 +1117,52 @@ def main():
     except Exception as e:
         print(f"Error loading files: {e}"); return
 
+    final_draw_order, processed_pixels = [], set()
+    spilled_pixels_to_reprocess = set()
+    print("\nStep 0: Processing Image Border Pixels...")
+    border_pixels_added = 0
+
+    # 检查是否有Alpha通道
+    alpha_channel = pixel_art_image[:, :, 3] if channels == 4 else None
+
+    # 收集所有边框点
+    print("  -> Collecting border pixels in a continuous clockwise path...")
+    continuous_border_coords = []
+    # 上下边框
+    for x in range(width):
+        continuous_border_coords.append((x, 0))
+
+    # 2. 右边框 (从上到下，跳过已添加的角点)
+    if width > 1:
+        for y in range(1, height):
+            continuous_border_coords.append((width - 1, y))
+
+    # 3. 下边框 (从右到左，跳过已添加的角点)
+    if height > 1 and width > 1:
+        for x in range(width - 2, -1, -1):
+            continuous_border_coords.append((x, height - 1))
+
+    # 4. 左边框 (从下到上，跳过已添加的角点)
+    if height > 2 and width > 1:
+        for y in range(height - 2, 0, -1):
+            continuous_border_coords.append((0, y))
+
+    for x, y in continuous_border_coords:
+        # 检查透明度
+        is_opaque = True
+        if alpha_channel is not None and alpha_channel[y, x] == 0:
+            is_opaque = False
+
+        if is_opaque:
+            p_tuple = (x, y)
+            # 确保不重复添加
+            if p_tuple not in processed_pixels:
+                final_draw_order.append(p_tuple)
+                processed_pixels.add(p_tuple)
+                border_pixels_added += 1
+
+    print(f"  -> Added {border_pixels_added} unique, non-transparent pixels from the image border.")
+
     print("\n--- Phase A: Parsing PSD Data & Path Correction ---")
     all_grouped_subpaths = extract_grouped_paths_from_psd(psd)
     if not all_grouped_subpaths: return
@@ -910,13 +1170,16 @@ def main():
     outline_subpaths_to_process = []
     num_to_select = min(NUM_OUTLINE_PATHS, len(all_grouped_subpaths))
     for i in range(num_to_select):
-        if all_grouped_subpaths[i]: outline_subpaths_to_process.append(all_grouped_subpaths[i][0])
+        if all_grouped_subpaths[i]: outline_subpaths_to_process.append(max(all_grouped_subpaths[i], key=lambda x: len(x)))
 
     all_initial_pixels, all_extrapolated_pixels, all_final_outline_pixels = [], [], []
     main_boundary_final_path = None
 
     print("\n--- Path Correction Stage Initiated ---")
     for i, subpath in enumerate(outline_subpaths_to_process):
+        # if i == 0:
+        #     continue
+
         print(f"\n>>> Processing Outline Subpath {i + 1}/{len(outline_subpaths_to_process)} <<<")
         initial_contour_points = [[k.anchor[1] * width, k.anchor[0] * height] for k in subpath if isinstance(k, Knot)]
         initial_outline_contour = np.array(initial_contour_points, dtype=np.float32).reshape((-1, 1, 2))
@@ -954,8 +1217,6 @@ def main():
         print("\nWarning: Could not define a main boundary. Filtering will be skipped.")
 
     print("\n--- Phase B: Building Final Draw Order ---")
-    final_draw_order, processed_pixels = [], set()
-    spilled_pixels_to_reprocess = set()
 
     # --- [ 此处是修正点 ] ---
 
@@ -1031,15 +1292,16 @@ def main():
         pixels_to_process = (layer_regions[2] - layers_3_up_union) - processed_pixels
         find_transparent_pixels(pixels_to_process, pixel_art_image)
         if main_boundary_contour is not None:
-            pixels_inside = {p for p in pixels_to_process if
-                             cv2.pointPolygonTest(main_boundary_contour, tuple(map(float, p)), False) >= 0}
+            # pixels_inside = {p for p in pixels_to_process if
+            #                  cv2.pointPolygonTest(main_boundary_contour, tuple(map(float, p)), False) >= 0}
+            pixels_inside = pixels_to_process
             pixels_outside = pixels_to_process - pixels_inside
             spilled_pixels_to_reprocess.update(pixels_outside)
             pixels_to_process = pixels_inside
             print(
                 f"  - Layer 2: Filtered out {len(pixels_outside)} pixels. Processing {len(pixels_inside)} inside pixels.")
         sorted_pixels = sort_and_flatten_regions(find_contiguous_regions(pixels_to_process, pixel_art_image), DEFAULT_FREE_COLORS)
-        final_draw_order.extend(sorted_pixels);
+        final_draw_order.extend(sorted_pixels)
         # find_transparent_pixels(final_draw_order, pixel_art_image)
         processed_pixels.update(map(tuple, sorted_pixels))
     else:

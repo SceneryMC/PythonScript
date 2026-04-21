@@ -11,7 +11,7 @@ from wplace_helper.utils import create_video_visualization_real
 # ========================================================================
 
 # 必需：输入你想可视化的模板的完整名称
-TEMPLATE_NAME_TO_VISUALIZE = "726_12_modified_converted_merged"
+TEMPLATE_NAME_TO_VISUALIZE = "noelle_birthday_11"
 
 # 可选：视频的帧率 (Frames Per Second)
 FPS = 60
@@ -122,7 +122,7 @@ def main():
             "Error: Please open the script and edit the 'TEMPLATE_NAME_TO_VISUALIZE' variable with your template's name.")
         return
 
-    templates_file_path = r'C:\Users\13308\nodejsproj\wplacer-lllexxa\data\templates.json'
+    templates_file_path = r'C:\Users\13308\PycharmProjects\SceneryMCPythonScript\wplace_helper\templates.json'
     print(f"Loading templates from '{templates_file_path}'...")
     try:
         with open(templates_file_path, 'r', encoding='utf-8') as f:

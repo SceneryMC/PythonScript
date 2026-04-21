@@ -57,3 +57,4 @@ def get_info_s():
 if __name__ == '__main__':
     download_ul()
     # get_info_s()
+    # 玄米黒酢
